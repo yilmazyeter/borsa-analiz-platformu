@@ -1,0 +1,18 @@
+2025-07-18 20:27:46,567 - INFO - Fırsat analizi başlatıldı
+2025-07-18 20:27:56,564 - INFO - Fırsat analizi başlatıldı
+2025-07-18 20:28:12,898 - INFO - Gökhan  hissesini 45.2 TL'ye satın aldı
+2025-07-18 20:33:15,637 - INFO - Fırsat analizi başlatıldı
+2025-07-18 20:33:26,164 - INFO - Takibe Al butonuna tıklandı: ASELS.IS
+2025-07-18 20:33:26,165 - INFO - Hisse takip listesine eklendi: ASELS.IS
+2025-07-18 20:33:29,890 - INFO - Takibe Al butonuna tıklandı: GARAN.IS
+2025-07-18 20:33:29,893 - INFO - Hisse takip listesine eklendi: GARAN.IS
+2025-07-18 20:33:31,952 - INFO - Takibe Al butonuna tıklandı: THYAO.IS
+2025-07-18 20:33:31,953 - INFO - Hisse takip listesine eklendi: THYAO.IS
+2025-07-18 20:33:33,866 - INFO - Gökhan Al butonuna tıklandı: THYAO.IS
+2025-07-18 20:33:33,868 - INFO - Gökhan THYAO.IS hissesini 45.2 TL'ye satın aldı
+2025-07-18 20:33:37,040 - INFO - Yılmaz Al butonuna tıklandı: THYAO.IS
+2025-07-18 20:33:37,041 - INFO - Yılmaz THYAO.IS hissesini 45.2 TL'ye satın aldı
+2025-07-18 20:37:18,566 - INFO - Fırsat analizi başlatıldı
+2025-07-18 22:32:28 - DEBUG - AMZN takip listesine eklendi. Mevcut liste: ['AMZN']
+2025-07-18 22:34:11 - DEBUG - GOOGL takip listesine eklendi. Mevcut liste: ['GOOGL']
+2025-07-18 22:34:21 - DEBUG - AMD takip listesine eklendi. Mevcut liste: ['GOOGL', 'AMD']
