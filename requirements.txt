@@ -9,4 +9,5 @@ textblob>=0.17.1
 nltk>=3.8.1
 feedparser>=6.0.10
 yfinance>=0.2.18
-matplotlib>=3.7.0 
+matplotlib>=3.7.0
+reportlab>=4.0.0 
