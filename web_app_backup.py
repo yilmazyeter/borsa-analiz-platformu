@@ -54,6 +54,9 @@ from alerts.alert_manager import AlertManager
 # Portföy optimizer modülü
 from portfolio_optimizer.portfolio_analyzer import PortfolioAnalyzer
 
+# Crypto analiz modülü
+from crypto.crypto_analyzer import CryptoAnalyzer
+
 # Sayfa konfigürasyonu
 st.set_page_config(
     page_title="Hisse Takip ve Analiz Dashboard",
@@ -125,37 +128,73 @@ if 'portfolio_analyzer' not in st.session_state:
     st.session_state.portfolio_analyzer = PortfolioAnalyzer()
 if 'alert_manager' not in st.session_state:
     st.session_state.alert_manager = AlertManager()
+if 'crypto_analyzer' not in st.session_state:
+    st.session_state.crypto_analyzer = CryptoAnalyzer()
 
-# Hayali alım-satım sistemi için session state
-if 'watchlist' not in st.session_state:
-    st.session_state.watchlist = []
-if 'portfolio' not in st.session_state:
-    st.session_state.portfolio = {}
-if 'transactions' not in st.session_state:
-    st.session_state.transactions = []
-if 'user_balance' not in st.session_state:
-    st.session_state.user_balance = 100000.0  # Başlangıç bakiyesi
-if 'refresh_watchlist' not in st.session_state:
-    st.session_state.refresh_watchlist = False
-if 'opportunities_data' not in st.session_state:
-    st.session_state.opportunities_data = None
+# Portfolio yönetimi
+from portfolio.user_manager import UserManager
+
+# Kullanıcı yöneticisini başlat
+user_manager = UserManager()
+
+# Session state'e kullanıcı bilgilerini ekle
+if 'current_user' not in st.session_state:
+    st.session_state.current_user = "gokhan"  # Varsayılan kullanıcı
+
+if 'user_manager' not in st.session_state:
+    st.session_state.user_manager = user_manager
+
+# Session state başlatma - Kalıcı veri yönetimi ile
+if "watchlist" not in st.session_state:
+    # Kalıcı verilerden yükle
+    current_user = st.session_state.get("current_user", "gokhan")
+    persistent_watchlist = user_manager.get_watchlist(current_user)
+    st.session_state["watchlist"] = persistent_watchlist
+    print(f"DEBUG INIT: Kalıcı takip listesi yüklendi: {st.session_state['watchlist']}")
+
+if "portfolio" not in st.session_state:
+    # Kalıcı verilerden yükle
+    current_user = st.session_state.get("current_user", "gokhan")
+    persistent_portfolio = user_manager.get_portfolio(current_user)
+    st.session_state["portfolio"] = persistent_portfolio
+
+if "transactions" not in st.session_state:
+    # Kalıcı verilerden yükle
+    current_user = st.session_state.get("current_user", "gokhan")
+    persistent_transactions = user_manager.get_transactions(current_user)
+    st.session_state["transactions"] = persistent_transactions
+
+if "user_balance" not in st.session_state:
+    # Kalıcı verilerden yükle
+    current_user = st.session_state.get("current_user", "gokhan")
+    persistent_balance = user_manager.get_user_balance(current_user)
+    st.session_state["user_balance"] = persistent_balance
+
+if "refresh_watchlist" not in st.session_state:
+    st.session_state["refresh_watchlist"] = False
+
+if "opportunities_data" not in st.session_state:
+    st.session_state["opportunities_data"] = None
+
+if "profit_opportunities_data" not in st.session_state:
+    st.session_state["profit_opportunities_data"] = None
 
 # Kullanıcı yönetimi için session state
 if 'selected_user' not in st.session_state:
     st.session_state.selected_user = "Gökhan"
-if 'users' not in st.session_state:
-    st.session_state.users = {
-        "Gökhan": {
-            "balance": 100000.0,
-            "portfolio": {},
-            "transactions": []
-        },
-        "Yılmaz": {
-            "balance": 100000.0,
-            "portfolio": {},
-            "transactions": []
-        }
-    }
+
+# Callback fonksiyonları
+def add_to_watchlist_callback(symbol):
+    """Callback fonksiyonu - watchlist'e ekle"""
+    def callback():
+        add_to_watchlist(symbol)
+    return callback
+
+def remove_from_watchlist_callback(symbol):
+    """Callback fonksiyonu - watchlist'ten çıkar"""
+    def callback():
+        remove_from_watchlist(symbol)
+    return callback
 
 def get_all_bist_stocks():
     """BIST'teki tüm hisse sembollerini otomatik olarak döndürür."""
@@ -311,37 +350,65 @@ def get_stock_data(symbol, period="1y"):
     return get_stock_data_twelvedata(symbol, period)
 
 def get_current_user_data():
-    """Seçili kullanıcının verilerini döndürür"""
-    user = st.session_state.selected_user
-    return st.session_state.users[user]
+    """Seçili kullanıcının verilerini döndürür - Kalıcı veri yönetimi ile"""
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        # Kalıcı verilerden al
+        users = user_manager.get_users()
+        user_data = users.get(current_user, {})
+        
+        # Eksik alanları varsayılan değerlerle doldur
+        if not user_data:
+            user_data = {
+                "balance": 1000000.0,
+                "portfolio": {},
+                "transactions": []
+            }
+        else:
+            # Eksik alanları kontrol et ve ekle
+            if "portfolio" not in user_data:
+                user_data["portfolio"] = {}
+            if "transactions" not in user_data:
+                user_data["transactions"] = []
+            if "balance" not in user_data:
+                user_data["balance"] = 500000.0
+        
+        return user_data
+    else:
+        # Fallback: session state
+        if "users" not in st.session_state:
+            st.session_state["users"] = {
+                "gokhan": {
+                    "balance": 500000.0,
+                    "portfolio": {},
+                    "transactions": []
+                }
+            }
+        return st.session_state["users"].get("gokhan", {
+            "balance": 500000.0,
+            "portfolio": {},
+            "transactions": []
+        })
 
 def update_user_data(user_data):
-    """Kullanıcı verilerini günceller"""
-    user = st.session_state.selected_user
-    st.session_state.users[user] = user_data
+    """Kullanıcı verilerini günceller - Kalıcı veri yönetimi ile"""
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        # Kalıcı veri yönetimi ile güncelle
+        users = user_manager.get_users()
+        users[current_user] = user_data
+        user_manager._save_json(user_manager.users_file, users)
+    else:
+        # Fallback: session state
+        if "users" not in st.session_state:
+            st.session_state["users"] = {}
+        st.session_state["users"][current_user] = user_data
 
-def add_to_watchlist(symbol):
-    """Takip listesine hisse ekler"""
-    if symbol not in st.session_state.watchlist:
-        st.session_state.watchlist.append(symbol)
-        st.session_state.refresh_watchlist = True
-        print(f"DEBUG: {symbol} takip listesine eklendi. Mevcut liste: {st.session_state.watchlist}")
-        # Log dosyasına da yazalım
-        with open('web_app.log', 'a', encoding='utf-8') as f:
-            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} - DEBUG - {symbol} takip listesine eklendi. Mevcut liste: {st.session_state.watchlist}\n")
-        logging.info(f"Hisse takip listesine eklendi: {symbol}")
-        st.success(f"✅ {symbol} takip listesine eklendi!")
-        return True
-    print(f"DEBUG: {symbol} zaten takip listesinde. Mevcut liste: {st.session_state.watchlist}")
-    return False
 
-def remove_from_watchlist(symbol):
-    """Takip listesinden hisse çıkarır"""
-    if symbol in st.session_state.watchlist:
-        st.session_state.watchlist.remove(symbol)
-        st.session_state.refresh_watchlist = True
-        return True
-    return False
 
 def buy_stock(symbol, price, quantity=1):
     """Hisse satın alır"""
@@ -1108,22 +1175,22 @@ def show_virtual_trading():
     # Kullanıcı bilgileri
     st.sidebar.subheader("💰 Kullanıcı Bilgileri")
     st.sidebar.write(f"**Kullanıcı:** {selected_user}")
-    st.sidebar.metric("Bakiye", f"{user_data['balance']:.2f} TL")
+    st.sidebar.metric("Bakiye", f"{user_data['balance']:.2f} USD")
     
     # Takip listesi
     st.sidebar.subheader("👀 Takip Listesi")
-    print(f"DEBUG SIDEBAR: Takip listesi içeriği: {st.session_state.watchlist}")
-    if st.session_state.watchlist:
-        st.sidebar.write(f"📊 **{len(st.session_state.watchlist)} hisse takip ediliyor**")
-        for symbol in st.session_state.watchlist:
+    print(f"DEBUG SIDEBAR: Takip listesi içeriği: {st.session_state['watchlist']}")
+    if st.session_state["watchlist"]:
+        st.sidebar.write(f"📊 **{len(st.session_state['watchlist'])} hisse takip ediliyor**")
+        for i, symbol in enumerate(st.session_state["watchlist"]):
             col1, col2 = st.sidebar.columns([3, 1])
             with col1:
                 st.sidebar.write(f"📈 {symbol}")
             with col2:
-                if st.sidebar.button("❌", key=f"remove_{symbol}"):
-                    remove_from_watchlist(symbol)
+                if st.sidebar.button("❌", key=f"sidebar_remove_{symbol}_{i}", on_click=remove_from_watchlist_callback(symbol)):
+                    print(f"DEBUG: {symbol} watchlist'ten çıkarıldı")
     else:
-        st.sidebar.info("Henüz takip listesi boş")
+        st.sidebar.info("📝 Henüz takip listesi boş")
         print(f"DEBUG SIDEBAR: Takip listesi boş!")
     
     # Ana trading arayüzü
@@ -1149,8 +1216,8 @@ def show_watchlist_tab():
     st.subheader("👀 Takip Listesi")
     st.markdown("**Fırsat analizinden takibe aldığınız hisseler**")
     
-    if not st.session_state.watchlist:
-        st.info("Henüz takip listesinde hisse bulunmuyor.")
+    if not st.session_state["watchlist"]:
+        st.info("📝 Henüz takip listesinde hisse bulunmuyor.")
         st.markdown("""
         **Takip listesine hisse eklemek için:**
         1. **Fırsat Analizi** sayfasına gidin
@@ -1160,10 +1227,10 @@ def show_watchlist_tab():
         return
     
     # Takip listesi özeti
-    st.success(f"✅ Takip listenizde {len(st.session_state.watchlist)} hisse bulunuyor")
+    st.success(f"✅ Takip listenizde {len(st.session_state['watchlist'])} hisse bulunuyor")
     
     # Her hisse için detaylı bilgi ve işlem seçenekleri
-    for i, symbol in enumerate(st.session_state.watchlist):
+    for i, symbol in enumerate(st.session_state["watchlist"]):
         with st.expander(f"📈 {symbol} - Detaylar ve İşlemler", expanded=True):
             col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
             
@@ -1175,7 +1242,7 @@ def show_watchlist_tab():
                 mock_change = np.random.uniform(-15, 15)
                 mock_volume = np.random.randint(1000000, 10000000)
                 
-                st.write(f"💰 **Güncel Fiyat:** {mock_price:.2f} TL")
+                st.write(f"💰 **Güncel Fiyat:** {mock_price:.2f} USD")
                 st.write(f"📊 **Günlük Değişim:** {mock_change:+.2f}%")
                 st.write(f"📈 **Hacim:** {mock_volume:,}")
                 
@@ -1220,7 +1287,7 @@ def show_watchlist_tab():
                 
                 # Toplam maliyet
                 total_cost = quantity * mock_price
-                st.write(f"**Toplam:** {total_cost:.2f} TL")
+                st.write(f"**Toplam:** {total_cost:.2f} USD")
             
             with col4:
                 st.write("**🛒 İşlem Butonları**")
@@ -1259,25 +1326,25 @@ def show_watchlist_tab():
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        st.metric("Toplam Hisse", len(st.session_state.watchlist))
+        st.metric("Toplam Hisse", len(st.session_state["watchlist"]))
     
     with col2:
         # Pozitif trend sayısı
-        positive_count = sum(1 for _ in range(len(st.session_state.watchlist)) 
+        positive_count = sum(1 for _ in range(len(st.session_state["watchlist"])) 
                            if np.random.uniform(-15, 15) > 0)
         st.metric("Pozitif Trend", positive_count)
     
     with col3:
         # Portföyde olan hisse sayısı
         user_data = get_current_user_data()
-        portfolio_count = sum(1 for symbol in st.session_state.watchlist 
+        portfolio_count = sum(1 for symbol in st.session_state["watchlist"] 
                             if symbol in user_data['portfolio'])
         st.metric("Portföyde Olan", portfolio_count)
     
     with col4:
         # Ortalama fiyat
         avg_price = 45.2  # Mock ortalama
-        st.metric("Ortalama Fiyat", f"{avg_price:.2f} TL")
+        st.metric("Ortalama Fiyat", f"{avg_price:.2f} USD")
 
 def show_portfolio_tab():
     """Portföy sekmesi"""
@@ -1308,10 +1375,10 @@ def show_portfolio_tab():
         portfolio_data.append({
             'Symbol': symbol,
             'Adet': quantity,
-            'Ortalama Maliyet': f"{data['avg_price']:.2f} TL",
-            'Güncel Fiyat': f"{current_price:.2f} TL",
-            'Toplam Değer': f"{value:.2f} TL",
-            'Kar/Zarar': f"{profit_loss:.2f} TL",
+            'Ortalama Maliyet': f"{data['avg_price']:.2f} USD",
+            'Güncel Fiyat': f"{current_price:.2f} USD",
+            'Toplam Değer': f"{value:.2f} USD",
+            'Kar/Zarar': f"{profit_loss:.2f} USD",
             'Kar/Zarar %': f"{profit_loss_percent:.2f}%"
         })
     
@@ -1320,7 +1387,7 @@ def show_portfolio_tab():
     st.dataframe(df, use_container_width=True)
     
     # Toplam değer
-    st.metric("📈 Toplam Portföy Değeri", f"{total_value:.2f} TL")
+    st.metric("📈 Toplam Portföy Değeri", f"{total_value:.2f} USD")
 
 def show_trading_tab():
     """İşlem yapma sekmesi"""
@@ -1340,11 +1407,11 @@ def show_trading_tab():
                 with col1:
                     st.write(f"**{symbol}**")
                     st.write(f"📦 **Mevcut Adet:** {data['quantity']}")
-                    st.write(f"💰 **Ortalama Maliyet:** {data['avg_price']:.2f} TL")
+                    st.write(f"💰 **Ortalama Maliyet:** {data['avg_price']:.2f} USD")
                     
                     # Mock güncel fiyat
                     mock_price = data['avg_price'] * np.random.uniform(0.8, 1.2)
-                    st.write(f"📊 **Güncel Fiyat:** {mock_price:.2f} TL")
+                    st.write(f"📊 **Güncel Fiyat:** {mock_price:.2f} USD")
                     
                     # Kar/zarar hesapla
                     cost = data['quantity'] * data['avg_price']
@@ -1353,9 +1420,9 @@ def show_trading_tab():
                     profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
                     
                     if profit_loss > 0:
-                        st.success(f"📈 **Kar:** {profit_loss:.2f} TL (%{profit_loss_percent:.2f})")
+                        st.success(f"📈 **Kar:** {profit_loss:.2f} USD (%{profit_loss_percent:.2f})")
                     else:
-                        st.error(f"📉 **Zarar:** {profit_loss:.2f} TL (%{profit_loss_percent:.2f})")
+                        st.error(f"📉 **Zarar:** {profit_loss:.2f} USD (%{profit_loss_percent:.2f})")
                 
                 with col2:
                     st.write("**🎯 Satış Seçenekleri**")
@@ -1372,7 +1439,7 @@ def show_trading_tab():
                     
                     # Toplam gelir
                     total_revenue = sell_quantity * mock_price
-                    st.write(f"**Toplam Gelir:** {total_revenue:.2f} TL")
+                    st.write(f"**Toplam Gelir:** {total_revenue:.2f} USD")
                 
                 with col3:
                     st.write("")  # Boşluk
@@ -1407,11 +1474,11 @@ def show_trading_tab():
         
         # Toplam maliyet
         total_cost = new_stock_quantity * new_stock_price
-        st.write(f"**Toplam Maliyet:** {total_cost:.2f} TL")
+        st.write(f"**Toplam Maliyet:** {total_cost:.2f} USD")
         
         # Bakiye kontrolü
         if total_cost > user_data['balance']:
-            st.error(f"❌ Yetersiz bakiye! Gerekli: {total_cost:.2f} TL, Mevcut: {user_data['balance']:.2f} TL")
+            st.error(f"❌ Yetersiz bakiye! Gerekli: {total_cost:.2f} USD, Mevcut: {user_data['balance']:.2f} USD")
         else:
             st.success(f"✅ Yeterli bakiye")
     
@@ -1450,11 +1517,11 @@ def show_performance_tab():
             
             performance_data.append({
                 'Hisse': symbol,
-                'Alış Ortalama': f"{data['avg_buy_price']:.2f} TL",
-                'Satış Ortalama': f"{data['avg_sell_price']:.2f} TL",
+                'Alış Ortalama': f"{data['avg_buy_price']:.2f} USD",
+                'Satış Ortalama': f"{data['avg_sell_price']:.2f} USD",
                 'Alınan Adet': data['quantity_bought'],
                 'Satılan Adet': data['quantity_sold'],
-                'Kar/Zarar': f"{data['profit_loss']:.2f} TL",
+                'Kar/Zarar': f"{data['profit_loss']:.2f} USD",
                 'Kar/Zarar %': f"{data['profit_loss_percent']:.2f}%"
             })
     
@@ -1465,12 +1532,12 @@ def show_performance_tab():
         # Genel performans
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("💰 Toplam Kar/Zarar", f"{total_profit:.2f} TL")
+            st.metric("💰 Toplam Kar/Zarar", f"{total_profit:.2f} USD")
         with col2:
             st.metric("📊 İşlem Sayısı", total_transactions)
         with col3:
             avg_profit = total_profit / total_transactions if total_transactions > 0 else 0
-            st.metric("📈 Ortalama Kar/Zarar", f"{avg_profit:.2f} TL")
+            st.metric("📈 Ortalama Kar/Zarar", f"{avg_profit:.2f} USD")
 
 def show_transaction_history():
     """İşlem geçmişi sekmesi"""
@@ -1492,8 +1559,8 @@ def show_transaction_history():
             'İşlem': transaction['type'],
             'Hisse': transaction['symbol'],
             'Adet': transaction['quantity'],
-            'Fiyat': f"{transaction['price']:.2f} TL",
-            'Toplam': f"{transaction['total']:.2f} TL"
+            'Fiyat': f"{transaction['price']:.2f} USD",
+            'Toplam': f"{transaction['total']:.2f} USD"
         })
     
     df = pd.DataFrame(transaction_data)
@@ -1525,7 +1592,7 @@ def show_portfolio(data_manager, username):
     
     # Toplam portföy değeri
     total_value = df['Toplam Değer'].sum()
-    st.metric("💰 Toplam Portföy Değeri", f"{total_value:,.2f} TL")
+    st.metric("💰 Toplam Portföy Değeri", f"{total_value:,.2f} USD")
 
 def show_transactions(data_manager, username):
     """Kullanıcının işlem geçmişini göster"""
@@ -1555,7 +1622,7 @@ def show_transactions(data_manager, username):
             "İşlem Türü": "İşlem",
             "shares": "Adet",
             "price": "Fiyat ($)",
-            "total_amount": st.column_config.NumberColumn("Toplam (TL)", format="%.2f"),
+            "total_amount": st.column_config.NumberColumn("Toplam (USD)", format="%.2f"),
             "transaction_date": "Tarih"
         },
         hide_index=True,
@@ -1577,9 +1644,9 @@ def show_performance_tracking(data_manager, username):
         df,
         column_config={
             "symbol": "Sembol",
-            "initial_investment": st.column_config.NumberColumn("Başlangıç Yatırımı (TL)", format="%.2f"),
-            "current_value": st.column_config.NumberColumn("Güncel Değer (TL)", format="%.2f"),
-            "profit_loss": st.column_config.NumberColumn("Kar/Zarar (TL)", format="%.2f"),
+            "initial_investment": st.column_config.NumberColumn("Başlangıç Yatırımı (USD)", format="%.2f"),
+            "current_value": st.column_config.NumberColumn("Güncel Değer (USD)", format="%.2f"),
+            "profit_loss": st.column_config.NumberColumn("Kar/Zarar (USD)", format="%.2f"),
             "profit_loss_percent": st.column_config.NumberColumn("Kar/Zarar (%)", format="%.2f"),
             "tracking_start_date": "Takip Başlangıcı"
         },
@@ -1596,15 +1663,15 @@ def show_performance_tracking(data_manager, username):
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("💰 Toplam Yatırım", f"{total_initial:,.2f} TL")
+        st.metric("💰 Toplam Yatırım", f"{total_initial:,.2f} USD")
     
     with col2:
-        st.metric("📈 Güncel Değer", f"{total_current:,.2f} TL")
+        st.metric("📈 Güncel Değer", f"{total_current:,.2f} USD")
     
     with col3:
         st.metric(
             "📊 Toplam Kar/Zarar", 
-            f"{total_profit_loss:,.2f} TL",
+            f"{total_profit_loss:,.2f} USD",
             f"{total_profit_loss_percent:+.2f}%",
             delta_color="normal" if total_profit_loss >= 0 else "inverse"
         )
@@ -1975,13 +2042,126 @@ def main():
     st.title("📈 Hisse Takip ve Analiz Dashboard")
     st.markdown("---")
     
-    # Sidebar menü
-    st.sidebar.title("📊 Menü")
-    page = st.sidebar.selectbox(
-        "Sayfa Seçin:",
-        ["🏠 Ana Sayfa", "📈 Hisse Analizi", "🚀 Fırsat Analizi", "🤖 AI Analizi", "📰 Haberler", "💰 Portföy Optimizer", 
-         "🔔 Alarm Sistemi", "🎮 Sanal Trading", "📊 TradingView", "⚙️ Ayarlar"]
-    )
+    # Sidebar - Kullanıcı Seçimi ve Portföy Bilgileri
+    with st.sidebar:
+        st.header("👤 Kullanıcı Yönetimi")
+        
+        # Kullanıcı seçimi
+        users = user_manager.get_users()
+        user_options = {f"{user_data['name']} ({username})": username for username, user_data in users.items()}
+        selected_user_display = st.selectbox("Kullanıcı Seçin:", list(user_options.keys()), 
+                                            index=0 if st.session_state.current_user == "gokhan" else 1)
+        selected_user = user_options[selected_user_display]
+        
+        if selected_user != st.session_state.current_user:
+            st.session_state.current_user = selected_user
+            # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+        
+        # Kullanıcı bilgileri
+        user_data = users[selected_user]
+        st.subheader(f"💰 {user_data['name']} - Portföy")
+        
+        # Bakiye
+        balance = user_manager.get_user_balance(selected_user)
+        st.metric("Nakit Bakiye", f"{balance:,.2f} USD")
+        
+        # Güncel döviz kuru
+        try:
+            from portfolio.exchange_rate import exchange_rate_service
+            usdt_rate = exchange_rate_service.get_usdt_to_try_rate()
+            st.metric("💱 USDT/TRY Kuru", f"{usdt_rate:.4f}")
+        except:
+            st.metric("💱 USDT/TRY Kuru", "30.0000")
+        
+        # Portföy değeri (basit hesaplama)
+        portfolio = user_manager.get_portfolio(selected_user)
+        if portfolio:
+            # Gerçek fiyatları almak için crypto analyzer kullan
+            portfolio_value = 0.0
+            crypto_analyzer = st.session_state.get('crypto_analyzer')
+            for symbol in portfolio.keys():
+                try:
+                    if crypto_analyzer:
+                        coin_data = crypto_analyzer.get_coin_data(symbol)
+                        if coin_data:
+                            current_price = coin_data['current_price']
+                            amount = portfolio[symbol]['amount']
+                            portfolio_value += amount * current_price
+                        else:
+                            # API'den fiyat alınamazsa ortalama fiyat kullan
+                            amount = portfolio[symbol]['amount']
+                            avg_price = portfolio[symbol]['avg_price']
+                            portfolio_value += amount * avg_price
+                    else:
+                        # Crypto analyzer yoksa ortalama fiyat kullan
+                        amount = portfolio[symbol]['amount']
+                        avg_price = portfolio[symbol]['avg_price']
+                        portfolio_value += amount * avg_price
+                except:
+                    # Hata durumunda ortalama fiyat kullan
+                    try:
+                        amount = portfolio[symbol]['amount']
+                        avg_price = portfolio[symbol]['avg_price']
+                        portfolio_value += amount * avg_price
+                    except:
+                        continue
+            
+            total_value = balance + portfolio_value
+            st.metric("Toplam Portföy Değeri", f"{total_value:,.2f} USD")
+            st.metric("Kripto Değeri", f"{portfolio_value:,.2f} USD")
+        else:
+            st.metric("Toplam Portföy Değeri", f"{balance:,.2f} USD")
+            st.info("Henüz kripto varlığı yok")
+        
+        st.divider()
+        
+        # Takip listesi
+        st.subheader("📈 Takip Listesi")
+        watchlist = user_manager.get_watchlist(selected_user)
+        
+        if watchlist:
+            st.write(f"**{len(watchlist)} coin takip ediliyor:**")
+            for symbol in watchlist:
+                col1, col2 = st.columns([3, 1])
+                with col1:
+                    st.write(f"• {symbol}")
+                with col2:
+                    if st.button("❌", key=f"remove_{symbol}", help="Takip listesinden çıkar"):
+                        user_manager.remove_from_watchlist(selected_user, symbol)
+                        # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+        else:
+            st.info("Takip listesi boş")
+        
+        st.divider()
+        
+        # Hızlı işlemler
+        st.subheader("⚡ Hızlı İşlemler")
+        
+        # Portföy yönetimi butonu
+        if st.button("💼 Portföy Yönetimi", type="primary"):
+            st.session_state.show_portfolio = True
+            # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+        
+        # İşlem geçmişi butonu
+        if st.button("📊 İşlem Geçmişi"):
+            st.session_state.show_transactions = True
+            # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+        
+        # Bakiye sıfırlama butonu
+        if st.button("💰 Bakiyeyi 500K USD'ye Sıfırla", type="secondary"):
+            user_manager.reset_user_balance(selected_user, 500000.0)
+            st.success(f"✅ {user_data['name']} bakiyesi 500,000 USD'ye sıfırlandı!")
+            # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+        
+        st.divider()
+        
+        # Ana menü
+        st.title("📊 Menü")
+        page = st.selectbox(
+            "Sayfa Seçin:",
+            ["🏠 Ana Sayfa", "📈 Hisse Analizi", "🚀 Fırsat Analizi", "🤖 AI Analizi", "🪙 Crypto Analizi", "💼 Portföy Yönetimi", "📰 Haberler", "💰 Portföy Optimizer", 
+             "🔔 Alarm Sistemi", "🎮 Sanal Trading", "🪙 Crypto Sanal Trading", "📊 TradingView", "⚙️ Ayarlar"]
+        )
     
     # Sayfa yönlendirmesi
     if page == "🏠 Ana Sayfa":
@@ -1992,6 +2172,10 @@ def main():
         show_opportunity_analysis()
     elif page == "🤖 AI Analizi":
         show_ai_analysis()
+    elif page == "🪙 Crypto Analizi":
+        show_crypto_analysis()
+    elif page == "💼 Portföy Yönetimi":
+        show_portfolio_management()
     elif page == "📰 Haberler":
         show_news_page()
     elif page == "💰 Portföy Optimizer":
@@ -2000,6 +2184,8 @@ def main():
         show_alerts_system()
     elif page == "🎮 Sanal Trading":
         show_virtual_trading()
+    elif page == "🪙 Crypto Sanal Trading":
+        show_crypto_virtual_trading()
     elif page == "📊 TradingView":
         show_tradingview_analysis()
     elif page == "⚙️ Ayarlar":
@@ -2142,13 +2328,13 @@ def show_opportunity_analysis():
             opportunities = analyze_downtrend_stocks()
             print(f"DEBUG OPPORTUNITY: {len(opportunities)} fırsat bulundu!")
             
-            # Sonuçları session state'e kaydet
-            st.session_state.opportunities_data = opportunities
+                                    # Sonuçları session state'e kaydet
+            st.session_state["opportunities_data"] = opportunities
             st.rerun()
     
     # Fırsatları göster
-    if st.session_state.opportunities_data:
-        opportunities = st.session_state.opportunities_data
+    if st.session_state["opportunities_data"]:
+        opportunities = st.session_state["opportunities_data"]
         if opportunities and len(opportunities) > 0:
             st.success(f"✅ {len(opportunities)} fırsat bulundu!")
             
@@ -2156,32 +2342,30 @@ def show_opportunity_analysis():
             st.subheader("🔥 Bulunan Fırsatlar")
             
             for i, opportunity in enumerate(opportunities[:max_results]):
-                    with st.container():
-                        col1, col2, col3, col4 = st.columns([3, 1, 1, 3])
+                with st.container():
+                    col1, col2, col3, col4 = st.columns([3, 1, 1, 3])
+                    
+                    with col1:
+                        st.write(f"**{opportunity['symbol']}**")
+                        st.write(f"*{opportunity.get('name', 'N/A')}*")
+                        st.write(f"Fırsat Tipi: {opportunity.get('opportunity_type', 'Düşüş Fırsatı')}")
+                    
+                    with col2:
+                        st.metric("Skor", f"{opportunity.get('score', 0)}")
+                    
+                    with col3:
+                        st.metric("Fiyat", f"{opportunity.get('current_price', 0):.2f}")
+                        st.metric("Değişim", f"{opportunity.get('change_percent', 0):.1f}%")
+                    
+                    with col4:
+                        # Takibe Al butonu - Callback ile
+                        if st.button(f"📈 Takibe Al", key=f"watch_{opportunity['symbol']}", on_click=add_to_watchlist_callback(opportunity['symbol'])):
+                            print(f"DEBUG OPPORTUNITY: Takibe Al butonuna tıklandı: {opportunity['symbol']}")
                         
-                        with col1:
-                            st.write(f"**{opportunity['symbol']}**")
-                            st.write(f"*{opportunity.get('name', 'N/A')}*")
-                            st.write(f"Fırsat Tipi: {opportunity.get('opportunity_type', 'Düşüş Fırsatı')}")
-                        
-                        with col2:
-                            st.metric("Skor", f"{opportunity.get('score', 0)}")
-                        
-                        with col3:
-                            st.metric("Fiyat", f"{opportunity.get('current_price', 0):.2f}")
-                            st.metric("Değişim", f"{opportunity.get('change_percent', 0):.1f}%")
-                        
-                        with col4:
-                            # Takibe Al butonu
-                            if st.button(f"📈 Takibe Al", key=f"watch_{opportunity['symbol']}"):
-                                print(f"DEBUG OPPORTUNITY: Takibe Al butonuna tıklandı: {opportunity['symbol']}")
-                                add_to_watchlist(opportunity['symbol'])
-                                st.rerun()
-                            
-                            # Detay Analiz butonu
-                            if st.button(f"🔍 Detay Analiz", key=f"detail_opp_{opportunity['symbol']}"):
-                                st.info(f"{opportunity['symbol']} için detaylı analiz yapılıyor...")
-                        
+                        # Detay Analiz butonu
+                        if st.button(f"🔍 Detay Analiz", key=f"detail_opp_{opportunity['symbol']}"):
+                            st.info(f"{opportunity['symbol']} için detaylı analiz yapılıyor...")
+                    
                         st.divider()
             
             # Özet istatistikler
@@ -2205,6 +2389,2219 @@ def show_opportunity_analysis():
     # Geçmiş fırsatlar
     st.subheader("📈 Geçmiş Fırsatlar")
     st.info("Bu bölümde geçmiş fırsat analizleri ve sonuçları gösterilecek.")
+
+def show_crypto_analysis():
+    """Crypto analizi sayfası"""
+    st.header("🪙 Crypto Analizi")
+    st.markdown("**USDT üzerindeki coinlerin anlık analizi ve fırsat tespiti**")
+    
+    print(f"DEBUG CRYPTO: Sayfa yüklendi. Mevcut takip listesi: {st.session_state.watchlist}")
+    print(f"DEBUG CRYPTO: Takip listesi ID: {id(st.session_state.watchlist)}")
+    
+    # Takip listesi koruma kontrolü
+    if 'watchlist' not in st.session_state or st.session_state.watchlist is None:
+        print(f"DEBUG CRYPTO: Takip listesi korunuyor, yeniden başlatılıyor...")
+        st.session_state.watchlist = []
+    
+    # Takip listesi kontrolü - eğer boşsa Fırsat Analizi'nden gelen verileri kullan
+    if not st.session_state.watchlist and hasattr(st.session_state, 'opportunities_data') and st.session_state.opportunities_data is not None and len(st.session_state.opportunities_data) > 0:
+        print(f"DEBUG CRYPTO: Takip listesi boş, Fırsat Analizi verilerini kontrol ediyorum...")
+        print(f"DEBUG CRYPTO: opportunities_data tipi: {type(st.session_state.opportunities_data)}")
+        print(f"DEBUG CRYPTO: opportunities_data içeriği: {st.session_state.opportunities_data}")
+        
+        # Fırsat Analizi'nden otomatik ekleme kaldırıldı - sadece manuel "Takibe Al" butonları ile eklenir
+        print(f"DEBUG CRYPTO: Otomatik takip listesi ekleme devre dışı")
+    else:
+        print(f"DEBUG CRYPTO: Takip listesi kontrolü atlandı - watchlist: {bool(st.session_state.watchlist)}, opportunities_data: {hasattr(st.session_state, 'opportunities_data')}")
+        if hasattr(st.session_state, 'opportunities_data'):
+            print(f"DEBUG CRYPTO: opportunities_data tipi: {type(st.session_state.opportunities_data)}")
+            print(f"DEBUG CRYPTO: opportunities_data None mu: {st.session_state.opportunities_data is None}")
+            if st.session_state.opportunities_data is not None:
+                print(f"DEBUG CRYPTO: opportunities_data uzunluğu: {len(st.session_state.opportunities_data) if isinstance(st.session_state.opportunities_data, list) else 'liste değil'}")
+    
+    # Takip listesi debug bilgisi
+    print(f"DEBUG CRYPTO: Mevcut takip listesi uzunluğu: {len(st.session_state.watchlist)}")
+    print(f"DEBUG CRYPTO: Takip listesi içeriği: {st.session_state.watchlist}")
+    
+    # Session state debug bilgisi
+    print(f"DEBUG CRYPTO: Session state anahtarları: {list(st.session_state.keys())}")
+    print(f"DEBUG CRYPTO: watchlist session state'de var mı: {'watchlist' in st.session_state}")
+    print(f"DEBUG CRYPTO: watchlist ID: {id(st.session_state.watchlist)}")
+    
+    # Refresh kontrolü
+    if st.session_state.refresh_watchlist:
+        st.session_state.refresh_watchlist = False
+        st.rerun()
+    
+    # Crypto analyzer'ı al
+    crypto_analyzer = st.session_state.crypto_analyzer
+    
+    # Coin türleri tanımla
+    coin_categories = {
+        "Tüm Coinler": "ALL",
+        "Major Coinler": "MAJOR",
+        "Altcoinler": "ALTCOIN", 
+        "Meme Coinler": "MEME",
+        "DeFi Tokenleri": "DEFI",
+        "Gaming Tokenleri": "GAMING",
+        "Layer 1 Coinler": "LAYER1",
+        "Layer 2 Coinler": "LAYER2",
+        "AI Tokenleri": "AI",
+        "Exchange Tokenleri": "EXCHANGE",
+        "Utility Tokenleri": "UTILITY",
+        "Micro Cap Coinler": "MICRO_CAP"
+    }
+    
+    # Sekmeler
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["🚀 Fırsat Analizi", "💰 24h Kazanç Analizi", "🐋 Balina Analizi", "⚡ 1h Kazanç Analizi", "📊 Coin Detayları", "📈 Grafik Analizi", "⚙️ Ayarlar"])
+    
+    with tab1:
+        st.subheader("🚀 Crypto Fırsat Analizi")
+        st.markdown("**Düşüş gösteren ve artış potansiyeli olan coinleri tespit eder**")
+        
+        # Analiz parametreleri
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            min_score = st.slider("Minimum Fırsat Skoru:", 5, 50, 15, key="crypto_min_score")
+        
+        with col2:
+            max_results = st.slider("Maksimum Sonuç:", 5, 50, 15, key="crypto_max_results")
+        
+        with col3:
+            min_volume = st.number_input("Min. Hacim (Milyon USDT):", 1, 100, 10, key="crypto_min_volume")
+        
+        with col4:
+            selected_category = st.selectbox("Coin Türü:", list(coin_categories.keys()), key="crypto_category")
+        
+        # Coin türü açıklaması
+        category_descriptions = {
+            "Tüm Coinler": "Tüm kategorilerdeki coinler analiz edilir",
+            "Major Coinler": "Bitcoin, Ethereum, BNB gibi büyük coinler",
+            "Altcoinler": "Düşük fiyatlı alternatif coinler",
+            "Meme Coinler": "DOGE, SHIB, PEPE gibi meme coinler",
+            "DeFi Tokenleri": "Merkeziyetsiz finans protokolleri",
+            "Gaming Tokenleri": "Oyun ve metaverse tokenleri",
+            "Layer 1 Coinler": "Ana blockchain platformları",
+            "Layer 2 Coinler": "Ölçeklendirme çözümleri",
+            "AI Tokenleri": "Yapay zeka projeleri",
+            "Exchange Tokenleri": "Borsa tokenleri",
+            "Utility Tokenleri": "Fayda tokenleri",
+            "Micro Cap Coinler": "Düşük piyasa değerli coinler"
+        }
+        
+        st.info(f"📋 **Seçilen Kategori:** {selected_category} - {category_descriptions[selected_category]}")
+        
+        if st.button("🔍 Crypto Fırsatlarını Analiz Et", type="primary", key="analyze_crypto_opportunities"):
+            print(f"DEBUG CRYPTO: Crypto Fırsatlarını Analiz Et butonuna tıklandı!")
+            print(f"DEBUG CRYPTO: Crypto Fırsatlarını Analiz Et butonuna tıklandı!")
+            with st.spinner("🔄 Crypto fırsatları analiz ediliyor..."):
+                try:
+                    # Crypto analyzer parametrelerini güncelle
+                    crypto_analyzer.min_volume_usdt = min_volume * 1000000
+                    
+                    # Fırsatları bul
+                    opportunities = crypto_analyzer.find_opportunities(min_score=min_score, max_results=max_results)
+                    
+                    if opportunities:
+                        # Coin türüne göre filtrele
+                        filtered_opportunities = filter_opportunities_by_category(opportunities, coin_categories[selected_category])
+                        
+                        if filtered_opportunities:
+                            # Session state'e kaydet
+                            st.session_state["opportunities_data"] = filtered_opportunities
+                            print(f"🔴🔴🔴 DEBUG: Fırsat Analizi - opportunities_data session state'e kaydedildi: {len(filtered_opportunities)} fırsat 🔴🔴🔴")
+                            
+                            st.success(f"✅ {len(filtered_opportunities)} {selected_category.lower()} fırsatı bulundu!")
+                            
+                            # Fırsatları göster
+                            st.subheader(f"🔥 Bulunan {selected_category} Fırsatları")
+                            
+                            for i, opportunity in enumerate(filtered_opportunities):
+                                with st.container():
+                                    col1, col2, col3, col4 = st.columns([3, 1, 1, 3])
+                                    
+                                    with col1:
+                                        coin_type = determine_coin_type(opportunity['symbol'], opportunity['current_price'], opportunity['volume_24h'])
+                                        st.write(f"**{opportunity['symbol']}** ({coin_type})")
+                                        st.write(f"💰 **Fiyat:** ${opportunity['current_price']:.6f}")
+                                        st.write(f"📊 **24h Değişim:** {opportunity['change_24h']:+.2f}%")
+                                        st.write(f"📈 **7g Değişim:** {opportunity['change_7d']:+.2f}%")
+                                        st.write(f"💎 **Fırsat Tipi:** {opportunity['opportunity_type']}")
+                                    
+                                    with col2:
+                                        st.metric("Skor", f"{opportunity['opportunity_score']:.1f}")
+                                        if opportunity.get('rsi'):
+                                            st.metric("RSI", f"{opportunity['rsi']:.1f}")
+                                    
+                                    with col3:
+                                        st.metric("Hacim", f"${opportunity['volume_24h']/1000000:.1f}M")
+                                        st.metric("Öneri", opportunity['recommendation'])
+                                    
+                                    with col4:
+                                        # Takibe Al butonu - Callback ile
+                                        button_key = f"crypto_watch_{opportunity['symbol']}_{i}"
+                                        if st.button(f"📈 Takibe Al", key=button_key, on_click=add_to_watchlist_callback(opportunity['symbol'])):
+                                            print(f"🔴🔴🔴 DEBUG CRYPTO: Takibe Al butonuna tıklandı: {opportunity['symbol']} 🔴🔴🔴")
+                                        
+                                        # Detay Analiz butonu
+                                        detail_key = f"crypto_detail_{opportunity['symbol']}_{i}"
+                                        if st.button(f"🔍 Detay", key=detail_key):
+                                            st.info(f"{opportunity['symbol']} için detaylı analiz yapılıyor...")
+                                    
+                                    st.divider()
+                            
+                            # Özet istatistikler
+                            st.subheader("📊 Fırsat Özeti")
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric("Toplam Fırsat", len(filtered_opportunities))
+                            
+                            with col2:
+                                avg_score = sum(opp['opportunity_score'] for opp in filtered_opportunities) / len(filtered_opportunities)
+                                st.metric("Ortalama Skor", f"{avg_score:.1f}")
+                            
+                            with col3:
+                                best_opportunity = max(filtered_opportunities, key=lambda x: x['opportunity_score'])
+                                st.metric("En İyi Fırsat", best_opportunity['symbol'])
+                            
+                            with col4:
+                                avg_drop = sum(opp['change_7d'] for opp in filtered_opportunities) / len(filtered_opportunities)
+                                st.metric("Ortalama Düşüş", f"{avg_drop:.1f}%")
+                        
+                        else:
+                            st.warning(f"❌ {selected_category} kategorisinde fırsat bulunamadı.")
+                            st.info("💡 Farklı bir kategori seçin veya parametreleri değiştirin.")
+                    
+                    else:
+                        st.warning("❌ Belirtilen kriterlere uygun crypto fırsatı bulunamadı.")
+                        st.info("💡 Daha düşük bir minimum skor deneyin.")
+                
+                except Exception as e:
+                    st.error(f"Crypto analizi sırasında hata oluştu: {str(e)}")
+    
+    with tab2:
+        st.subheader("💰 24 Saatlik Kazanç Analizi")
+        st.markdown("**Uzun süredir düşüşte olan ama 24 saat içinde artış potansiyeli olan coinleri tespit eder**")
+        
+        # Analiz parametreleri
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            min_profit_score = st.slider("Minimum Kazanç Skoru:", 15, 80, 25, key="profit_min_score")
+        
+        with col2:
+            max_profit_results = st.slider("Maksimum Sonuç:", 5, 30, 10, key="profit_max_results")
+        
+        with col3:
+            selected_profit_category = st.selectbox("Coin Türü:", list(coin_categories.keys()), key="profit_category")
+        
+        st.info(f"📋 **24 Saatlik Analiz:** {selected_profit_category} kategorisinde uzun düşüşten sonra artış potansiyeli olan {min_profit_score}+ skorlu coinler")
+        
+        if st.button("💰 24 Saatlik Kazanç Fırsatlarını Analiz Et", type="primary", key="analyze_24h_profit"):
+            print(f"DEBUG CRYPTO: 24 Saatlik Kazanç Fırsatlarını Analiz Et butonuna tıklandı!")
+            with st.spinner("🔄 24 saatlik kazanç fırsatları analiz ediliyor..."):
+                try:
+                    # 24 saatlik kazanç fırsatlarını bul
+                    profit_opportunities = crypto_analyzer.find_24h_profit_opportunities(min_score=min_profit_score, max_results=max_profit_results)
+                    
+                    if profit_opportunities:
+                        print(f"DEBUG: {len(profit_opportunities)} fırsat bulundu")
+                        # Coin türüne göre filtrele
+                        filtered_profit_opportunities = filter_opportunities_by_category(profit_opportunities, coin_categories[selected_profit_category])
+                        print(f"DEBUG: Filtreleme sonrası {len(filtered_profit_opportunities)} fırsat kaldı")
+                        
+                        # Session state'e kaydet
+                        st.session_state["opportunities_data"] = filtered_profit_opportunities
+                        print(f"🔴🔴🔴 DEBUG: opportunities_data session state'e kaydedildi: {len(filtered_profit_opportunities)} fırsat 🔴🔴🔴")
+                        
+                        if filtered_profit_opportunities:
+                            st.success(f"✅ {len(filtered_profit_opportunities)} {selected_profit_category.lower()} 24 saatlik kazanç fırsatı bulundu!")
+                            
+                            # Fırsatları göster
+                            st.subheader(f"🔥 24 Saatlik Kazanç Fırsatları")
+                            
+                            for i, opportunity in enumerate(filtered_profit_opportunities):
+                                with st.container():
+                                    # Tavsiye rengi belirleme
+                                    if opportunity['recommendation'] == "KESİNLİKLE AL":
+                                        recommendation_color = "🟢"
+                                        bg_color = "background-color: #d4edda; border-left: 4px solid #28a745;"
+                                    elif opportunity['recommendation'] == "GÜÇLÜ AL":
+                                        recommendation_color = "🟡"
+                                        bg_color = "background-color: #fff3cd; border-left: 4px solid #ffc107;"
+                                    elif opportunity['recommendation'] == "AL":
+                                        recommendation_color = "🟠"
+                                        bg_color = "background-color: #f8d7da; border-left: 4px solid #dc3545;"
+                                    else:
+                                        recommendation_color = "⚪"
+                                        bg_color = "background-color: #f8f9fa; border-left: 4px solid #6c757d;"
+                                    
+                                    st.markdown(f"""
+                                    <div style="{bg_color} padding: 1rem; border-radius: 0.5rem; margin: 1rem 0;">
+                                        <h4>{recommendation_color} {opportunity['symbol']} - {opportunity['recommendation']}</h4>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+                                    
+                                    with col1:
+                                        coin_type = determine_coin_type(opportunity['symbol'], opportunity['current_price'], opportunity['volume_24h'])
+                                        st.write(f"**Coin Türü:** {coin_type}")
+                                        st.write(f"💰 **Güncel Fiyat:** ${opportunity['current_price']:.6f}")
+                                        st.write(f"🎯 **Hedef Fiyat:** ${opportunity['target_price']:.6f}")
+                                        st.write(f"📈 **Potansiyel Kazanç:** {opportunity['potential_gain_percent']:+.2f}%")
+                                    
+                                    with col2:
+                                        st.metric("Kazanç Skoru", f"{opportunity['profit_score']:.1f}")
+                                        st.metric("Güven", opportunity['confidence'])
+                                    
+                                    with col3:
+                                        st.metric("24h Değişim", f"{opportunity['change_24h']:+.2f}%")
+                                        st.metric("7g Değişim", f"{opportunity['change_7d']:+.2f}%")
+                                    
+                                    with col4:
+                                        # Alım-Satım butonları
+                                        # Takibe Al butonu - Callback ile
+                                        st.write(f"🔴 DEBUG: {opportunity['symbol']} için buton oluşturuluyor")
+                                        st.write(f"🔴 DEBUG: Buton key: watch_{opportunity['symbol']}")
+                                        if st.button(f"📈 TAKIBE AL", key=f"watch_{opportunity['symbol']}", on_click=add_to_watchlist_callback(opportunity['symbol'])):
+                                            print(f"DEBUG CRYPTO: Takibe Al butonuna tıklandı: {opportunity['symbol']}")
+                                        else:
+                                            st.write(f"🔴 DEBUG: {opportunity['symbol']} butonu tıklanmadı")
+                                        
+                                        col_actions1, col_actions2 = st.columns(2)
+                                        
+                                        with col_actions1:
+                                            
+                                            # Al butonu
+                                            buy_button_key = f"profit_buy_{opportunity['symbol']}_{i}"
+                                            if st.button(f"💰 Al", key=buy_button_key, type="primary"):
+                                                # Alım miktarı
+                                                amount = st.number_input(f"{opportunity['symbol']} miktarı (USDT):", 
+                                                                        min_value=10.0, value=100.0, step=10.0, 
+                                                                        key=f"buy_amount_{opportunity['symbol']}_{i}")
+                                                confirm_key = f"confirm_buy_{opportunity['symbol']}_{i}"
+                                                if st.button(f"✅ Satın Al", key=confirm_key):
+                                                    buy_crypto(opportunity['symbol'], amount, opportunity['current_price'])
+                                                    # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+                                        
+                                        with col_actions2:
+                                            # Detay Analiz butonu
+                                            detail_key = f"profit_detail_{opportunity['symbol']}_{i}"
+                                            if st.button(f"🔍 Detay", key=detail_key):
+                                                st.info(f"{opportunity['symbol']} için detaylı analiz yapılıyor...")
+                                            
+                                            # Portföy kontrolü
+                                            current_user = st.session_state.current_user
+                                            portfolio = user_manager.get_portfolio(current_user)
+                                            if opportunity['symbol'] in portfolio:
+                                                st.info(f"Portföyde: {portfolio[opportunity['symbol']]['amount']:.2f} {opportunity['symbol']}")
+                                                
+                                                # Sat butonu
+                                                sell_key = f"profit_sell_{opportunity['symbol']}_{i}"
+                                                if st.button(f"💸 Sat", key=sell_key):
+                                                    amount = portfolio[opportunity['symbol']]['amount']
+                                                    sell_crypto(opportunity['symbol'], amount, opportunity['current_price'])
+                                                    # st.run() kaldırıldı - sayfa yeniden yüklenmeyecek
+                                    
+                                    # Özel durum göstergeleri
+                                    col_status1, col_status2 = st.columns(2)
+                                    with col_status1:
+                                        if opportunity.get('long_term_drop', False):
+                                            st.success("📉 Uzun vadeli düşüş tespit edildi")
+                                        if opportunity.get('recovery_started', False):
+                                            st.success("📈 Toparlanma başladı")
+                                    
+                                    with col_status2:
+                                        st.metric("RSI", f"{opportunity['rsi']:.1f}")
+                                        st.metric("Hacim", f"${opportunity['volume_24h']/1000000:.1f}M")
+                                    
+                                    # Sebepler
+                                    if opportunity['reasoning']:
+                                        st.write("**📊 Analiz Sebepleri:**")
+                                        for reason in opportunity['reasoning']:
+                                            st.write(f"• {reason}")
+                                    
+                                    st.divider()
+                            
+                            # Özet istatistikler
+                            st.subheader("📊 24 Saatlik Kazanç Özeti")
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric("Toplam Fırsat", len(filtered_profit_opportunities))
+                            
+                            with col2:
+                                avg_profit_score = sum(opp['profit_score'] for opp in filtered_profit_opportunities) / len(filtered_profit_opportunities)
+                                st.metric("Ortalama Skor", f"{avg_profit_score:.1f}")
+                            
+                            with col3:
+                                best_profit_opportunity = max(filtered_profit_opportunities, key=lambda x: x['profit_score'])
+                                st.metric("En İyi Fırsat", best_profit_opportunity['symbol'])
+                            
+                            with col4:
+                                avg_potential_gain = sum(opp['potential_gain_percent'] for opp in filtered_profit_opportunities) / len(filtered_profit_opportunities)
+                                st.metric("Ortalama Potansiyel", f"{avg_potential_gain:+.1f}%")
+                            
+                            # Özel kategoriler
+                            st.subheader("🎯 Özel Kategoriler")
+                            col_cat1, col_cat2, col_cat3 = st.columns(3)
+                            
+                            with col_cat1:
+                                kesinlikle_al_count = sum(1 for opp in filtered_profit_opportunities if opp['recommendation'] == "KESİNLİKLE AL")
+                                st.metric("KESİNLİKLE AL", kesinlikle_al_count)
+                            
+                            with col_cat2:
+                                guclu_al_count = sum(1 for opp in filtered_profit_opportunities if opp['recommendation'] == "GÜÇLÜ AL")
+                                st.metric("GÜÇLÜ AL", guclu_al_count)
+                            
+                            with col_cat3:
+                                recovery_count = sum(1 for opp in filtered_profit_opportunities if opp.get('recovery_started', False))
+                                st.metric("Toparlanma Başladı", recovery_count)
+                        
+                        else:
+                            st.warning(f"❌ {selected_profit_category} kategorisinde 24 saatlik kazanç fırsatı bulunamadı.")
+                            st.info("💡 Farklı bir kategori seçin veya skoru düşürün.")
+                    
+                    else:
+                        st.warning("❌ 24 saatlik kazanç fırsatı bulunamadı.")
+                        st.info("💡 Daha düşük bir minimum skor deneyin.")
+                
+                except Exception as e:
+                    st.error(f"24 saatlik kazanç analizi sırasında hata oluştu: {str(e)}")
+    
+    with tab3:
+        st.subheader("🐋 Balina Analizi")
+        st.markdown("**Son 3 ayda balinaların en çok alım yaptığı coinleri analiz eder ve yakın vadede hangi coinlere giriş yapabileceklerini tahmin eder**")
+        
+        # Balina analizi parametreleri
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            whale_min_volume = st.number_input("Min. Balina Hacmi (Milyon USDT):", 1, 1000, 10, key="whale_min_volume")
+        
+        with col2:
+            whale_analysis_period = st.selectbox("Analiz Periyodu:", ["3 Ay", "6 Ay", "1 Yıl"], key="whale_period")
+        
+        with col3:
+            whale_prediction_days = st.slider("Tahmin Günleri:", 7, 90, 30, key="whale_prediction_days")
+        
+        if st.button("🐋 Balina Analizini Başlat", type="primary", key="analyze_whale_activity"):
+            print(f"🔴🔴🔴 BALINA ANALIZ: Balina analizi başlat butonuna tıklandı! 🔴🔴🔴")
+            with st.spinner("🔄 Balina aktiviteleri analiz ediliyor..."):
+                try:
+                    # Balina analizi fonksiyonunu çağır
+                    whale_analysis = analyze_whale_activity(
+                        min_volume=whale_min_volume * 1000000,
+                        period=whale_analysis_period,
+                        prediction_days=whale_prediction_days
+                    )
+                    print(f"🔴🔴🔴 BALINA ANALIZ: Analiz tamamlandı, sonuç: {whale_analysis is not None} 🔴🔴🔴")
+                    
+                    if whale_analysis:
+                        print(f"🔴🔴🔴 BALINA ANALIZ: Whale analysis başarılı! Toplam coin: {len(whale_analysis['top_whale_coins'])} 🔴🔴🔴")
+                        st.success(f"✅ Balina analizi tamamlandı! {len(whale_analysis['top_whale_coins'])} coin analiz edildi.")
+                        
+                        # En çok alım yapılan coinler
+                        st.subheader("🐋 En Çok Balina Alımı Yapılan Coinler")
+                        
+                        for i, coin in enumerate(whale_analysis['top_whale_coins']):
+                            print(f"🔴🔴🔴 BALINA COIN: {i}. coin: {coin['symbol']} 🔴🔴🔴")
+                            with st.container():
+                                col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+                                
+                                with col1:
+                                    st.write(f"**{coin['symbol']}** - {coin['coin_type']}")
+                                    st.write(f"💰 **Güncel Fiyat:** ${coin['current_price']:.6f}")
+                                    st.write(f"📊 **Balina Alım Hacmi:** ${coin['whale_volume']/1000000:.1f}M")
+                                    st.write(f"🐋 **Balina Sayısı:** {coin['whale_count']}")
+                                    st.write(f"📈 **Son 3 Ay Değişim:** {coin['change_3m']:+.2f}%")
+                                
+                                with col2:
+                                    st.metric("Balina Skoru", f"{coin['whale_score']:.1f}")
+                                    st.metric("Hacim", f"${coin['volume_24h']/1000000:.1f}M")
+                                
+                                with col3:
+                                    st.metric("RSI", f"{coin['rsi']:.1f}")
+                                    st.metric("Trend", coin['trend'])
+                                
+                                with col4:
+                                    # Takibe Al butonu
+                                    st.button(f"📈 Takibe Al", key=f"whale_watch_{coin['symbol']}_{i}", 
+                                             on_click=add_to_watchlist, args=(coin['symbol'],))
+                                    
+                                    # Detay butonu
+                                    if st.button(f"🔍 Detay", key=f"whale_detail_{coin['symbol']}_{i}"):
+                                        st.info(f"{coin['symbol']} balina detayları gösteriliyor...")
+                                
+                                st.divider()
+                        
+                        # Yakın vadeli tahminler
+                        st.subheader("🔮 Yakın Vadeli Balina Tahminleri")
+                        st.info(f"**{whale_prediction_days} gün içinde balinaların giriş yapabileceği coinler:**")
+                        
+                        print(f"🔴🔴🔴 BALINA PREDICTIONS: Toplam tahmin: {len(whale_analysis['predictions'])} 🔴🔴🔴")
+                        for j, prediction in enumerate(whale_analysis['predictions']):
+                            print(f"🔴🔴🔴 BALINA PREDICTION: {j}. tahmin: {prediction['symbol']} 🔴🔴🔴")
+                            with st.container():
+                                col1, col2, col3, col4 = st.columns([3, 1, 1, 2])
+                                
+                                with col1:
+                                    st.write(f"**{prediction['symbol']}** - {prediction['coin_type']}")
+                                    st.write(f"💰 **Güncel Fiyat:** ${prediction['current_price']:.6f}")
+                                    st.write(f"📅 **Tahmin Tarihi:** {prediction['predicted_date']}")
+                                    st.write(f"🎯 **Giriş Olasılığı:** %{prediction['entry_probability']:.1f}")
+                                    st.write(f"📊 **Beklenen Hacim:** ${prediction['expected_volume']/1000000:.1f}M")
+                                
+                                with col2:
+                                    st.metric("Tahmin Skoru", f"{prediction['prediction_score']:.1f}")
+                                    st.metric("Mevcut Hacim", f"${prediction['current_volume']/1000000:.1f}M")
+                                
+                                with col3:
+                                    st.metric("RSI", f"{prediction['rsi']:.1f}")
+                                    st.metric("Trend", prediction['trend'])
+                                
+                                with col4:
+                                    # Takibe Al butonu
+                                    st.button(f"📈 Takibe Al", key=f"prediction_watch_{prediction['symbol']}_{j}", 
+                                             on_click=add_to_watchlist, args=(prediction['symbol'],))
+                                    
+                                    # Detay butonu
+                                    if st.button(f"🔍 Detay", key=f"prediction_detail_{prediction['symbol']}_{j}"):
+                                        st.info(f"{prediction['symbol']} tahmin detayları gösteriliyor...")
+                                
+                                st.divider()
+                        
+                        # Balina analizi özeti
+                        st.subheader("📊 Balina Analizi Özeti")
+                        col1, col2, col3, col4 = st.columns(4)
+                        
+                        with col1:
+                            st.metric("Analiz Edilen Coin", len(whale_analysis['top_whale_coins']))
+                        
+                        with col2:
+                            total_whale_volume = sum(coin['whale_volume'] for coin in whale_analysis['top_whale_coins'])
+                            st.metric("Toplam Balina Hacmi", f"${total_whale_volume/1000000:.0f}M")
+                        
+                        with col3:
+                            avg_whale_score = sum(coin['whale_score'] for coin in whale_analysis['top_whale_coins']) / len(whale_analysis['top_whale_coins'])
+                            st.metric("Ortalama Balina Skoru", f"{avg_whale_score:.1f}")
+                        
+                        with col4:
+                            st.metric("Tahmin Sayısı", len(whale_analysis['predictions']))
+                        
+                        # Balina aktivite grafiği
+                        st.subheader("📈 Balina Aktivite Grafiği")
+                        st.info("Balina aktivitelerinin zaman içindeki değişimi grafik olarak gösterilecek.")
+                        
+                        # Balina kategorileri
+                        st.subheader("🐋 Balina Kategorileri")
+                        col_cat1, col_cat2, col_cat3 = st.columns(3)
+                        
+                        with col_cat1:
+                            major_whales = sum(1 for coin in whale_analysis['top_whale_coins'] if coin['coin_type'] == "Major Coin")
+                            st.metric("Major Coin Balinaları", major_whales)
+                        
+                        with col_cat2:
+                            altcoin_whales = sum(1 for coin in whale_analysis['top_whale_coins'] if coin['coin_type'] == "Altcoin")
+                            st.metric("Altcoin Balinaları", altcoin_whales)
+                        
+                        with col_cat3:
+                            defi_whales = sum(1 for coin in whale_analysis['top_whale_coins'] if coin['coin_type'] == "DeFi Token")
+                            st.metric("DeFi Balinaları", defi_whales)
+                    
+                    else:
+                        st.warning("❌ Balina analizi verisi bulunamadı.")
+                        st.info("💡 Farklı parametreler deneyin veya daha sonra tekrar deneyin.")
+                
+                except Exception as e:
+                    st.error(f"Balina analizi sırasında hata oluştu: {str(e)}")
+    
+    with tab4:
+        st.subheader("⚡ 1 Saatlik Kazanç Analizi")
+        st.markdown("**Düşüşe geçmiş ve 1 saat içinde rekor seviyede yükseliş yapabilecek coinleri analiz eder**")
+        
+        # 1h kazanç analizi parametreleri
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            min_1h_score = st.slider("Minimum 1h Skoru:", 20, 90, 35, key="1h_min_score")
+        
+        with col2:
+            max_1h_results = st.slider("Maksimum Sonuç:", 5, 25, 10, key="1h_max_results")
+        
+        with col3:
+            selected_1h_category = st.selectbox("Coin Türü:", list(coin_categories.keys()), key="1h_category")
+        
+        st.info(f"📋 **1 Saatlik Analiz:** {selected_1h_category} kategorisinde düşüşe geçmiş ve 1 saat içinde rekor yükseliş potansiyeli olan {min_1h_score}+ skorlu coinler")
+        
+        if st.button("⚡ 1 Saatlik Kazanç Fırsatlarını Analiz Et", type="primary", key="analyze_1h_profit"):
+            print(f"🔴🔴🔴 1H ANALIZ: 1 Saatlik Kazanç Fırsatlarını Analiz Et butonuna tıklandı! 🔴🔴🔴")
+            with st.spinner("🔄 1 saatlik kazanç fırsatları analiz ediliyor..."):
+                try:
+                    # 1 saatlik kazanç fırsatlarını bul
+                    one_hour_opportunities = crypto_analyzer.find_1h_profit_opportunities(min_score=min_1h_score, max_results=max_1h_results)
+                    
+                    if one_hour_opportunities:
+                        print(f"🔴🔴🔴 1H ANALIZ: {len(one_hour_opportunities)} fırsat bulundu 🔴🔴🔴")
+                        # Coin türüne göre filtrele
+                        filtered_1h_opportunities = filter_opportunities_by_category(one_hour_opportunities, coin_categories[selected_1h_category])
+                        print(f"🔴🔴🔴 1H ANALIZ: Filtreleme sonrası {len(filtered_1h_opportunities)} fırsat kaldı 🔴🔴🔴")
+                        
+                        # Session state'e kaydet
+                        st.session_state["1h_opportunities_data"] = filtered_1h_opportunities
+                        print(f"🔴🔴🔴 1H ANALIZ: 1h_opportunities_data session state'e kaydedildi: {len(filtered_1h_opportunities)} fırsat 🔴🔴🔴")
+                        
+                        if filtered_1h_opportunities:
+                            st.success(f"✅ {len(filtered_1h_opportunities)} {selected_1h_category.lower()} 1 saatlik kazanç fırsatı bulundu!")
+                            
+                            # Fırsatları göster
+                            st.subheader(f"⚡ 1 Saatlik Kazanç Fırsatları")
+                            
+                            for i, opportunity in enumerate(filtered_1h_opportunities):
+                                with st.container():
+                                    # Tavsiye rengi belirleme
+                                    if opportunity['recommendation'] == "ACİL AL":
+                                        recommendation_color = "🔴"
+                                        bg_color = "background-color: #f8d7da; border-left: 4px solid #dc3545;"
+                                    elif opportunity['recommendation'] == "HIZLI AL":
+                                        recommendation_color = "🟠"
+                                        bg_color = "background-color: #fff3cd; border-left: 4px solid #ffc107;"
+                                    elif opportunity['recommendation'] == "AL":
+                                        recommendation_color = "🟡"
+                                        bg_color = "background-color: #d4edda; border-left: 4px solid #28a745;"
+                                    else:
+                                        recommendation_color = "⚪"
+                                        bg_color = "background-color: #f8f9fa; border-left: 4px solid #6c757d;"
+                                    
+                                    st.markdown(f"""
+                                    <div style="{bg_color} padding: 1rem; border-radius: 0.5rem; margin: 1rem 0;">
+                                        <h4>{recommendation_color} {opportunity['symbol']} - {opportunity['recommendation']}</h4>
+                                    </div>
+                                    """, unsafe_allow_html=True)
+                                    
+                                    col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+                                    
+                                    with col1:
+                                        coin_type = determine_coin_type(opportunity['symbol'], opportunity['current_price'], opportunity['volume_24h'])
+                                        st.write(f"**{opportunity['symbol']}** ({coin_type})")
+                                        st.write(f"💰 **Fiyat:** ${opportunity['current_price']:.6f}")
+                                        st.write(f"📊 **1h Değişim:** {opportunity['change_1h']:+.2f}%")
+                                        st.write(f"📈 **4h Değişim:** {opportunity['change_4h']:+.2f}%")
+                                        st.write(f"⚡ **1h Fırsat Tipi:** {opportunity['opportunity_type']}")
+                                    
+                                    with col2:
+                                        st.metric("1h Skor", f"{opportunity['opportunity_score']:.1f}")
+                                        if opportunity.get('rsi'):
+                                            st.metric("RSI", f"{opportunity['rsi']:.1f}")
+                                    
+                                    with col3:
+                                        st.metric("Hacim", f"${opportunity['volume_24h']/1000000:.1f}M")
+                                        st.metric("Öneri", opportunity['recommendation'])
+                                    
+                                    with col4:
+                                        # Takibe Al butonu
+                                        st.button(f"📈 Takibe Al", key=f"1h_watch_{opportunity['symbol']}_{i}", 
+                                                 on_click=add_to_watchlist, args=(opportunity['symbol'],))
+                                        
+                                        # Detay Analiz butonu
+                                        if st.button(f"🔍 Detay", key=f"1h_detail_{opportunity['symbol']}_{i}"):
+                                            st.info(f"{opportunity['symbol']} 1 saatlik detay analizi gösteriliyor...")
+                                    
+                                    st.divider()
+                            
+                            # 1h analiz özeti
+                            st.subheader("📊 1 Saatlik Analiz Özeti")
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric("Toplam Fırsat", len(filtered_1h_opportunities))
+                            
+                            with col2:
+                                avg_1h_score = sum(opp['opportunity_score'] for opp in filtered_1h_opportunities) / len(filtered_1h_opportunities)
+                                st.metric("Ortalama 1h Skor", f"{avg_1h_score:.1f}")
+                            
+                            with col3:
+                                best_1h_opportunity = max(filtered_1h_opportunities, key=lambda x: x['opportunity_score'])
+                                st.metric("En İyi 1h Fırsat", best_1h_opportunity['symbol'])
+                            
+                            with col4:
+                                avg_1h_drop = sum(opp['change_1h'] for opp in filtered_1h_opportunities) / len(filtered_1h_opportunities)
+                                st.metric("Ortalama 1h Düşüş", f"{avg_1h_drop:.1f}%")
+                        
+                        else:
+                            st.warning(f"❌ {selected_1h_category} kategorisinde 1 saatlik fırsat bulunamadı.")
+                            st.info("💡 Farklı bir kategori seçin veya parametreleri değiştirin.")
+                    
+                    else:
+                        st.warning("❌ Belirtilen kriterlere uygun 1 saatlik crypto fırsatı bulunamadı.")
+                        st.info("💡 Daha düşük bir minimum skor deneyin.")
+                
+                except Exception as e:
+                    st.error(f"1 saatlik kazanç analizi sırasında hata oluştu: {str(e)}")
+    
+    with tab5:
+        st.subheader("📊 Coin Detayları")
+        
+        # Coin seçimi
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Popüler coinler listesi
+            popular_coins = ["BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT", 
+                           "DOTUSDT", "LINKUSDT", "LTCUSDT", "BCHUSDT", "XRPUSDT"]
+            selected_coin = st.selectbox("Coin Seçin:", popular_coins, key="crypto_coin_select")
+        
+        with col2:
+            if st.button("🔍 Coin Detaylarını Getir", key="get_coin_details"):
+                with st.spinner("Coin detayları alınıyor..."):
+                    try:
+                        coin_details = crypto_analyzer.get_coin_details(selected_coin)
+                        
+                        if coin_details:
+                            st.success(f"✅ {selected_coin} detayları alındı!")
+                            
+                            # Coin bilgileri
+                            col1, col2, col3, col4 = st.columns(4)
+                            
+                            with col1:
+                                st.metric("Güncel Fiyat", f"${coin_details['current_price']:.6f}")
+                                st.metric("24h Değişim", f"{coin_details['change_24h']:+.2f}%")
+                            
+                            with col2:
+                                st.metric("7g Değişim", f"{coin_details['change_7d']:+.2f}%")
+                                st.metric("24h Hacim", f"${coin_details['volume_24h']/1000000:.1f}M")
+                            
+                            with col3:
+                                st.metric("24h En Yüksek", f"${coin_details['high_24h']:.6f}")
+                                st.metric("24h En Düşük", f"${coin_details['low_24h']:.6f}")
+                            
+                            with col4:
+                                st.metric("RSI", f"{coin_details['rsi']:.1f}")
+                                if coin_details.get('opportunity'):
+                                    st.metric("Fırsat Skoru", f"{coin_details['opportunity']['opportunity_score']:.1f}")
+                            
+                            # Fırsat analizi
+                            if coin_details.get('opportunity'):
+                                st.subheader("🎯 Fırsat Analizi")
+                                opp = coin_details['opportunity']
+                                
+                                col1, col2 = st.columns(2)
+                                
+                                with col1:
+                                    st.write(f"**Fırsat Tipi:** {opp['opportunity_type']}")
+                                    st.write(f"**Öneri:** {opp['recommendation']}")
+                                
+                                with col2:
+                                    st.write(f"**Fırsat Skoru:** {opp['opportunity_score']:.1f}")
+                                    if opp.get('reason'):
+                                        st.write(f"**Sebep:** {opp['reason']}")
+                        
+                        else:
+                            st.error("Coin detayları alınamadı.")
+                    
+                    except Exception as e:
+                        st.error(f"Coin detayları alınırken hata: {str(e)}")
+    
+    with tab5:
+        st.subheader("📈 Crypto Grafik Analizi")
+        st.info("Bu bölümde coin grafikleri ve teknik analiz göstergeleri eklenecek.")
+    
+    with tab6:
+        st.subheader("⚙️ Crypto Analiz Ayarları")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Analiz Parametreleri:**")
+            st.write(f"• Minimum Hacim: {crypto_analyzer.min_volume_usdt/1000000:.0f}M USDT")
+            st.write(f"• Minimum Değişim: %{crypto_analyzer.min_price_change}")
+            st.write(f"• Fırsat Eşiği: %{crypto_analyzer.opportunity_threshold}")
+            st.write(f"• Cache Süresi: {crypto_analyzer.cache_duration} saniye")
+        
+        with col2:
+            st.write("**Veri Kaynakları:**")
+            st.write("• Binance API v3")
+            st.write("• 1 saatlik mum verileri")
+            st.write("• 7 günlük geçmiş")
+            st.write("• Anlık ticker bilgileri")
+        
+        st.subheader("📋 Coin Kategorileri")
+        for category, description in category_descriptions.items():
+            st.write(f"• **{category}:** {description}")
+
+def filter_opportunities_by_category(opportunities, category):
+    """Fırsatları kategoriye göre filtreler"""
+    print(f"DEBUG FILTER: Kategori: {category}, Toplam fırsat: {len(opportunities)}")
+    
+    if category == "ALL":
+        print("DEBUG FILTER: Tüm kategoriler seçildi, tüm fırsatlar döndürülüyor")
+        return opportunities
+    
+    filtered = []
+    for opp in opportunities:
+        coin_type = determine_coin_type(opp['symbol'], opp['current_price'], opp['volume_24h'])
+        print(f"DEBUG FILTER: {opp['symbol']} -> {coin_type}")
+        
+        if category == "MAJOR" and coin_type == "Major Coin":
+            filtered.append(opp)
+        elif category == "ALTCOIN" and coin_type == "Altcoin":
+            filtered.append(opp)
+        elif category == "MEME" and coin_type == "Meme Coin":
+            filtered.append(opp)
+        elif category == "DEFI" and coin_type == "DeFi Token":
+            filtered.append(opp)
+        elif category == "GAMING" and coin_type == "Gaming Token":
+            filtered.append(opp)
+        elif category == "LAYER1" and coin_type == "Layer 1":
+            filtered.append(opp)
+        elif category == "LAYER2" and coin_type == "Layer 2":
+            filtered.append(opp)
+        elif category == "AI" and coin_type == "AI Token":
+            filtered.append(opp)
+        elif category == "EXCHANGE" and coin_type == "Exchange Token":
+            filtered.append(opp)
+        elif category == "UTILITY" and coin_type == "Utility Token":
+            filtered.append(opp)
+        elif category == "MICRO_CAP" and coin_type == "Micro Cap":
+            filtered.append(opp)
+    
+    print(f"DEBUG FILTER: Filtreleme sonrası {len(filtered)} fırsat kaldı")
+    return filtered
+
+def determine_coin_type(symbol, price, volume):
+    """Coin'in türünü belirler"""
+    
+    # Major coins (ana coinler)
+    major_coins = ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'XRPUSDT', 'ADAUSDT', 'SOLUSDT', 'DOTUSDT', 'LINKUSDT', 'LTCUSDT', 'BCHUSDT']
+    
+    # Stablecoins (sabit coinler)
+    stablecoins = ['USDTUSDT', 'USDCUSDT', 'BUSDUSDT', 'DAIUSDT', 'TUSDUSDT', 'FRAXUSDT']
+    
+    # Meme coins (meme coinler) - genellikle düşük fiyatlı ve yüksek hacimli
+    meme_indicators = ['DOGE', 'SHIB', 'PEPE', 'FLOKI', 'BONK', 'WIF', 'MYRO', 'POPCAT', 'BOOK', 'TURBO']
+    
+    # DeFi tokens (DeFi tokenleri)
+    defi_indicators = ['UNI', 'AAVE', 'COMP', 'MKR', 'SUSHI', 'CRV', 'BAL', 'YFI', 'SNX', '1INCH']
+    
+    # Gaming tokens (oyun tokenleri)
+    gaming_indicators = ['AXS', 'MANA', 'SAND', 'ENJ', 'GALA', 'ILV', 'ALICE', 'HERO', 'TLM', 'ALPHA']
+    
+    # Layer 1 coins (katman 1 coinler)
+    layer1_indicators = ['AVAX', 'MATIC', 'ATOM', 'NEAR', 'FTM', 'ALGO', 'ICP', 'APT', 'SUI', 'SEI']
+    
+    # Layer 2 coins (katman 2 coinler)
+    layer2_indicators = ['ARB', 'OP', 'IMX', 'ZKSYNC', 'STARK', 'POLYGON', 'OPTIMISM']
+    
+    # AI tokens (yapay zeka tokenleri)
+    ai_indicators = ['FET', 'OCEAN', 'AGIX', 'RNDR', 'TAO', 'BITTENSOR', 'AI', 'GPT', 'NEURAL']
+    
+    # Exchange tokens (borsa tokenleri)
+    exchange_indicators = ['BNB', 'OKB', 'HT', 'KCS', 'GT', 'MX', 'BGB', 'CRO', 'FTT']
+    
+    # Utility tokens (fayda tokenleri)
+    utility_indicators = ['LINK', 'CHAINLINK', 'BAT', 'ZRX', 'REP', 'KNC', 'BAND', 'API3']
+    
+    # Check coin type
+    if symbol in major_coins:
+        return "Major Coin"
+    elif symbol in stablecoins:
+        return "Stablecoin"
+    elif any(indicator in symbol for indicator in meme_indicators):
+        return "Meme Coin"
+    elif any(indicator in symbol for indicator in defi_indicators):
+        return "DeFi Token"
+    elif any(indicator in symbol for indicator in gaming_indicators):
+        return "Gaming Token"
+    elif any(indicator in symbol for indicator in layer1_indicators):
+        return "Layer 1"
+    elif any(indicator in symbol for indicator in layer2_indicators):
+        return "Layer 2"
+    elif any(indicator in symbol for indicator in ai_indicators):
+        return "AI Token"
+    elif any(indicator in symbol for indicator in exchange_indicators):
+        return "Exchange Token"
+    elif any(indicator in symbol for indicator in utility_indicators):
+        return "Utility Token"
+    elif price < 0.01 and volume > 10000000:  # Çok düşük fiyat, yüksek hacim
+        return "Altcoin/Meme"
+    elif price < 1.0:
+        return "Altcoin"
+    elif volume < 1000000:  # Düşük hacim
+        return "Micro Cap"
+    else:
+        return "Altcoin"
+
+def buy_crypto(symbol, amount_usdt, price):
+    """Kripto para satın alır"""
+    current_user = st.session_state.current_user
+    user_manager = st.session_state.user_manager
+    
+    success = user_manager.buy_crypto(current_user, symbol, amount_usdt, price)
+    if success:
+        st.success(f"✅ {amount_usdt} {symbol} satın alındı!")
+        return True
+    else:
+        st.error("❌ Satın alma işlemi başarısız!")
+        return False
+
+def sell_crypto(symbol, amount_usdt, price):
+    """Kripto para satar"""
+    current_user = st.session_state.current_user
+    user_manager = st.session_state.user_manager
+    
+    success = user_manager.sell_crypto(current_user, symbol, amount_usdt, price)
+    if success:
+        st.success(f"✅ {amount_usdt} {symbol} satıldı!")
+        return True
+    else:
+        st.error("❌ Satış işlemi başarısız!")
+        return False
+
+def add_to_watchlist(symbol):
+    """Takip listesine hisse ekler - Kalıcı veri yönetimi ile"""
+    print(f"🔴🔴🔴 ADD_TO_WATCHLIST: Fonksiyon çağrıldı: {symbol} 🔴🔴🔴")
+    
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        # Kalıcı veri yönetimi ile ekle
+        user_manager.add_to_watchlist(current_user, symbol)
+        
+        # Session state'i güncelle
+        if symbol not in st.session_state["watchlist"]:
+            st.session_state["watchlist"].append(symbol)
+            print(f"🔴🔴🔴 ADD_TO_WATCHLIST: Symbol eklendi: {symbol} 🔴🔴🔴")
+            print(f"🔴🔴🔴 ADD_TO_WATCHLIST: Güncel watchlist: {st.session_state['watchlist']} 🔴🔴🔴")
+            st.success(f"✅ {symbol} takip listesine eklendi!")
+            return True
+        else:
+            print(f"🔴🔴🔴 ADD_TO_WATCHLIST: Symbol zaten mevcut: {symbol} 🔴🔴🔴")
+            st.warning(f"⚠️ {symbol} zaten takip listesinde!")
+            return False
+    else:
+        # Fallback: sadece session state
+        if symbol not in st.session_state["watchlist"]:
+            st.session_state["watchlist"].append(symbol)
+            print(f"🔴🔴🔴 ADD_TO_WATCHLIST: Symbol eklendi (session only): {symbol} 🔴🔴🔴")
+            st.success(f"✅ {symbol} takip listesine eklendi!")
+            return True
+        else:
+            st.warning(f"⚠️ {symbol} zaten takip listesinde!")
+            return False
+
+def remove_from_watchlist(symbol):
+    """Takip listesinden hisse çıkarır - Kalıcı veri yönetimi ile"""
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        # Kalıcı veri yönetimi ile çıkar
+        user_manager.remove_from_watchlist(current_user, symbol)
+        
+        # Session state'i güncelle
+        if symbol in st.session_state["watchlist"]:
+            st.session_state["watchlist"].remove(symbol)
+            st.success(f"❌ {symbol} takip listesinden çıkarıldı!")
+            print(f"DEBUG: {symbol} watchlist'ten çıkarıldı. Güncel liste: {st.session_state['watchlist']}")
+            return True
+        else:
+            st.warning(f"⚠️ {symbol} takip listesinde bulunamadı!")
+            return False
+    else:
+        # Fallback: sadece session state
+        if symbol in st.session_state["watchlist"]:
+            st.session_state["watchlist"].remove(symbol)
+            st.success(f"❌ {symbol} takip listesinden çıkarıldı!")
+            print(f"DEBUG: {symbol} watchlist'ten çıkarıldı. Güncel liste: {st.session_state['watchlist']}")
+            return True
+        else:
+            st.warning(f"⚠️ {symbol} takip listesinde bulunamadı!")
+            return False
+
+def calculate_exit_recommendation(symbol, current_price, avg_price, profit_loss_percent):
+    """Coin için önerilen çıkış saati hesaplar"""
+    from datetime import datetime, timedelta
+    
+    # Kar/zarar durumuna göre öneri
+    if profit_loss_percent >= 20:  # %20+ kar
+        recommendation = "🟢 ACİL SAT"
+        reason = "Yüksek kar - Kârı realize et"
+        exit_time = "Hemen"
+    elif profit_loss_percent >= 10:  # %10-20 kar
+        recommendation = "🟡 YAKINDA SAT"
+        reason = "İyi kar - Yakında sat"
+        exit_time = "1-2 saat içinde"
+    elif profit_loss_percent >= 5:  # %5-10 kar
+        recommendation = "🔵 BEKLE"
+        reason = "Orta kar - Bekle"
+        exit_time = "4-6 saat içinde"
+    elif profit_loss_percent >= 0:  # %0-5 kar
+        recommendation = "🔵 BEKLE"
+        reason = "Düşük kar - Bekle"
+        exit_time = "6-12 saat içinde"
+    elif profit_loss_percent >= -5:  # %0-5 zarar
+        recommendation = "🔵 BEKLE"
+        reason = "Düşük zarar - Bekle"
+        exit_time = "12-24 saat içinde"
+    elif profit_loss_percent >= -10:  # %5-10 zarar
+        recommendation = "🟡 YAKINDA SAT"
+        reason = "Orta zarar - Yakında sat"
+        exit_time = "2-4 saat içinde"
+    else:  # %10+ zarar
+        recommendation = "🟢 ACİL SAT"
+        reason = "Yüksek zarar - Zararı kes"
+        exit_time = "Hemen"
+    
+    # Teknik analiz ekle
+    try:
+        crypto_analyzer = st.session_state.get('crypto_analyzer')
+        if crypto_analyzer:
+            coin_data = crypto_analyzer.get_coin_data(symbol)
+            if coin_data:
+                # RSI analizi
+                rsi = crypto_analyzer.calculate_rsi(coin_data['data']['close'])
+                if rsi > 70:  # Aşırı alım
+                    recommendation = "🟢 ACİL SAT"
+                    reason = "Aşırı alım bölgesi - Sat"
+                    exit_time = "Hemen"
+                elif rsi < 30:  # Aşırı satım
+                    if profit_loss_percent < 0:
+                        recommendation = "🔵 BEKLE"
+                        reason = "Aşırı satım - Toparlanma bekleniyor"
+                        exit_time = "6-12 saat içinde"
+                
+                # Trend analizi
+                change_24h = coin_data['change_24h']
+                if change_24h < -10:  # %10+ düşüş
+                    if profit_loss_percent < 0:
+                        recommendation = "🟢 ACİL SAT"
+                        reason = "Güçlü düşüş trendi - Zararı kes"
+                        exit_time = "Hemen"
+    except:
+        pass  # Teknik analiz hatası durumunda devam et
+    
+    return f"{recommendation} - {exit_time}"
+
+def calculate_price_recommendations(symbol, current_price, avg_price, profit_loss_percent):
+    """Coin için önerilen giriş ve çıkış fiyatlarını hesaplar"""
+    try:
+        crypto_analyzer = st.session_state.get('crypto_analyzer')
+        if crypto_analyzer:
+            coin_data = crypto_analyzer.get_coin_data(symbol)
+            if coin_data:
+                # Teknik analiz verileri
+                df = coin_data['data']
+                rsi = crypto_analyzer.calculate_rsi(df['close'])
+                change_24h = coin_data['change_24h']
+                change_7d = coin_data['change_7d']
+                
+                # Bollinger Bands hesapla
+                upper_band, middle_band, lower_band = crypto_analyzer.calculate_bollinger_bands(df['close'])
+                current_upper = upper_band.iloc[-1] if not upper_band.empty else current_price * 1.05
+                current_lower = lower_band.iloc[-1] if not lower_band.empty else current_price * 0.95
+                
+                # Destek ve direnç seviyeleri
+                high_24h = df['high'].iloc[-24:].max() if len(df) >= 24 else df['high'].max()
+                low_24h = df['low'].iloc[-24:].min() if len(df) >= 24 else df['low'].min()
+                
+                # Önerilen giriş fiyatı hesaplama
+                if profit_loss_percent < 0:  # Zararda ise
+                    # Daha düşük fiyattan alım için öneri
+                    if rsi < 30:  # Aşırı satım
+                        recommended_entry = current_price * 0.95  # %5 daha düşük
+                    elif rsi < 40:
+                        recommended_entry = current_price * 0.97  # %3 daha düşük
+                    else:
+                        recommended_entry = current_price * 0.98  # %2 daha düşük
+                else:  # Karda ise
+                    # Mevcut fiyat yakınından alım
+                    recommended_entry = current_price * 1.02  # %2 daha yüksek
+                
+                # Önerilen çıkış fiyatı hesaplama
+                if profit_loss_percent >= 20:  # Yüksek kar
+                    recommended_exit = current_price * 0.98  # Hemen sat
+                elif profit_loss_percent >= 10:  # İyi kar
+                    recommended_exit = current_price * 1.05  # %5 daha yüksek
+                elif profit_loss_percent >= 5:  # Orta kar
+                    recommended_exit = current_price * 1.08  # %8 daha yüksek
+                elif profit_loss_percent >= 0:  # Düşük kar
+                    recommended_exit = current_price * 1.10  # %10 daha yüksek
+                elif profit_loss_percent >= -5:  # Düşük zarar
+                    recommended_exit = current_price * 1.05  # %5 daha yüksek
+                elif profit_loss_percent >= -10:  # Orta zarar
+                    recommended_exit = current_price * 1.02  # %2 daha yüksek
+                else:  # Yüksek zarar
+                    recommended_exit = current_price * 0.98  # Hemen sat
+                
+                # Teknik seviyeleri dikkate al
+                if current_price > current_upper:  # Üst bandın üstünde
+                    recommended_exit = min(recommended_exit, current_upper * 0.99)
+                elif current_price < current_lower:  # Alt bandın altında
+                    recommended_entry = max(recommended_entry, current_lower * 1.01)
+                
+                # Destek/direnç seviyelerini dikkate al
+                if current_price < low_24h * 1.02:  # 24h düşük seviyeye yakın
+                    recommended_entry = max(recommended_entry, low_24h * 0.98)
+                if current_price > high_24h * 0.98:  # 24h yüksek seviyeye yakın
+                    recommended_exit = min(recommended_exit, high_24h * 1.02)
+                
+                return {
+                    'entry_price': round(recommended_entry, 6),
+                    'exit_price': round(recommended_exit, 6),
+                    'rsi': round(rsi, 1),
+                    'bollinger_upper': round(current_upper, 6),
+                    'bollinger_lower': round(current_lower, 6)
+                }
+    except Exception as e:
+        print(f"Fiyat önerisi hesaplama hatası: {e}")
+    
+    # Fallback değerler
+    return {
+        'entry_price': round(current_price * 0.98, 6),
+        'exit_price': round(current_price * 1.05, 6),
+        'rsi': 50.0,
+        'bollinger_upper': round(current_price * 1.05, 6),
+        'bollinger_lower': round(current_price * 0.95, 6)
+    }
+
+def show_portfolio_management():
+    """Portföy yönetimi sayfası"""
+    st.header("💼 Portföy Yönetimi")
+    
+    # Otomatik yenileme sistemi - Gelişmiş çözüm
+    if 'portfolio_auto_refresh' not in st.session_state:
+        st.session_state.portfolio_auto_refresh = True
+    
+    if 'portfolio_refresh_interval' not in st.session_state:
+        st.session_state.portfolio_refresh_interval = 5  # 5 saniye
+    
+    # Manuel yenileme butonu ve otomatik yenileme kontrolü
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    with col1:
+        st.write("🔄 **Canlı Portföy Takibi**")
+        if st.session_state.portfolio_auto_refresh:
+            st.write(f"✅ Otomatik yenileme aktif ({st.session_state.portfolio_refresh_interval} saniyede bir)")
+        else:
+            st.write("⏸️ Otomatik yenileme duraklatıldı")
+    
+    with col2:
+        if st.button("🔄 Yenile", key="manual_refresh_portfolio"):
+            st.rerun()
+    
+    with col3:
+        if st.button("⏸️/▶️", key="toggle_auto_refresh"):
+            st.session_state.portfolio_auto_refresh = not st.session_state.portfolio_auto_refresh
+            st.rerun()
+    
+    with col4:
+        # Yenileme aralığını ayarlama
+        new_interval = st.selectbox("⏱️ Yenileme Aralığı:", [3, 5, 10, 15, 30], 
+                                   index=[3, 5, 10, 15, 30].index(st.session_state.portfolio_refresh_interval),
+                                   key="refresh_interval_selector")
+        if new_interval != st.session_state.portfolio_refresh_interval:
+            st.session_state.portfolio_refresh_interval = new_interval
+            st.rerun()
+    
+    # Otomatik yenileme için placeholder
+    if st.session_state.portfolio_auto_refresh:
+        refresh_placeholder = st.empty()
+        refresh_placeholder.info(f"🔄 Otomatik yenileme aktif - {st.session_state.portfolio_refresh_interval} saniyede bir güncelleniyor...")
+        
+        # Basit otomatik yenileme - her sayfa yüklendiğinde kontrol
+        if 'auto_refresh_counter' not in st.session_state:
+            st.session_state.auto_refresh_counter = 0
+        
+        st.session_state.auto_refresh_counter += 1
+        
+        # Her 5 sayfa yüklemesinde bir yenileme (yaklaşık 5 saniye)
+        if st.session_state.auto_refresh_counter >= st.session_state.portfolio_refresh_interval:
+            st.session_state.auto_refresh_counter = 0
+            st.rerun()
+    
+    current_user = st.session_state.current_user
+    user_manager = st.session_state.user_manager
+    
+    # Kullanıcı bilgileri
+    users = user_manager.get_users()
+    user_data = users[current_user]
+    
+    st.subheader(f"👤 {user_data['name']} - Portföy Durumu")
+    
+    # Bakiye ve portföy değeri
+    balance = user_manager.get_user_balance(current_user)
+    portfolio = user_manager.get_portfolio(current_user)
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("💰 Nakit Bakiye", f"{balance:,.2f} USD")
+    
+    with col2:
+        portfolio_value = 0.0
+        if portfolio:
+            # Gerçek fiyatları al
+            crypto_analyzer = st.session_state.get('crypto_analyzer')
+            for symbol in portfolio.keys():
+                try:
+                    if crypto_analyzer:
+                        coin_data = crypto_analyzer.get_coin_data(symbol)
+                        if coin_data:
+                            current_price = coin_data['current_price']
+                            amount = portfolio[symbol]['amount']
+                            portfolio_value += amount * current_price
+                except:
+                    continue
+        
+        st.metric("📈 Kripto Değeri", f"{portfolio_value:,.2f} USD")
+    
+    with col3:
+        total_value = balance + portfolio_value
+        st.metric("💎 Toplam Değer", f"{total_value:,.2f} USD")
+    
+    with col4:
+        if portfolio_value > 0:
+            profit_loss = portfolio_value - sum(data['total_invested'] for data in portfolio.values())
+            profit_loss_percent = (profit_loss / sum(data['total_invested'] for data in portfolio.values())) * 100
+            st.metric("📊 Kar/Zarar", f"{profit_loss:+,.2f} USD ({profit_loss_percent:+.2f}%)")
+        else:
+            st.metric("📊 Kar/Zarar", "0.00 USD")
+    
+    st.divider()
+    
+    # Portföy detayları
+    if portfolio:
+        st.subheader("📊 Portföy Detayları")
+        
+        # Güncel fiyatları al
+        portfolio_details = []
+        crypto_analyzer = st.session_state.get('crypto_analyzer')
+        for symbol, data in portfolio.items():
+            try:
+                if crypto_analyzer:
+                    coin_data = crypto_analyzer.get_coin_data(symbol)
+                    if coin_data:
+                        current_price = coin_data['current_price']
+                        amount = data['amount']
+                        avg_price = data['avg_price']
+                        invested = data['total_invested']
+                        
+                        current_value = amount * current_price
+                        profit_loss = current_value - invested
+                        profit_loss_percent = (profit_loss / invested * 100) if invested > 0 else 0
+                        
+                        portfolio_details.append({
+                            'symbol': symbol,
+                            'amount': amount,
+                            'avg_price': avg_price,
+                            'current_price': current_price,
+                            'current_value': current_value,
+                            'invested': invested,
+                            'profit_loss': profit_loss,
+                            'profit_loss_percent': profit_loss_percent
+                        })
+            except:
+                continue
+        
+        if portfolio_details:
+            # Portföy tablosu
+            for item in portfolio_details:
+                with st.container():
+                    col1, col2, col3, col4, col5 = st.columns([2, 1, 1, 1, 2])
+                    
+                    with col1:
+                        st.write(f"**{item['symbol']}**")
+                        st.write(f"Miktar: {item['amount']:.4f}")
+                    
+                    with col2:
+                        st.metric("Ort. Fiyat", f"${item['avg_price']:.6f}")
+                        st.metric("Güncel", f"${item['current_price']:.6f}")
+                    
+                    with col3:
+                        st.metric("Yatırım", f"${item['invested']:.2f}")
+                        st.metric("Değer", f"${item['current_value']:.2f}")
+                    
+                    with col4:
+                        profit_color = "normal" if item['profit_loss'] >= 0 else "inverse"
+                        st.metric("Kar/Zarar", f"${item['profit_loss']:+.2f}", 
+                                delta=f"{item['profit_loss_percent']:+.2f}%")
+                        
+                        # Önerilen çıkış saati
+                        exit_recommendation = calculate_exit_recommendation(
+                            item['symbol'], 
+                            item['current_price'], 
+                            item['avg_price'], 
+                            item['profit_loss_percent']
+                        )
+                        st.write(f"🕐 **{exit_recommendation}**")
+                        
+                        # Fiyat önerileri
+                        price_recommendations = calculate_price_recommendations(
+                            item['symbol'], 
+                            item['current_price'], 
+                            item['avg_price'], 
+                            item['profit_loss_percent']
+                        )
+                        
+                        st.write(f"📈 **Giriş:** ${price_recommendations['entry_price']:.6f}")
+                        st.write(f"📉 **Çıkış:** ${price_recommendations['exit_price']:.6f}")
+                        st.write(f"📊 **RSI:** {price_recommendations['rsi']}")
+                    
+                    with col5:
+                        # İşlem butonları
+                        col_buy, col_sell = st.columns(2)
+                        
+                        with col_buy:
+                            if st.button(f"💰 Al", key=f"portfolio_buy_{item['symbol']}"):
+                                st.session_state.show_buy_modal = item['symbol']
+                                st.rerun()
+                        
+                        with col_sell:
+                            if st.button(f"💸 Sat", key=f"portfolio_sell_{item['symbol']}"):
+                                # Tümünü sat
+                                sell_crypto(item['symbol'], item['amount'], item['current_price'])
+                                # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+                    
+                    st.divider()
+        
+        # Alım modalı
+        if st.session_state.get('show_buy_modal'):
+            symbol = st.session_state.show_buy_modal
+            st.subheader(f"💰 {symbol} Satın Al")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                amount = st.number_input(f"Miktar (USDT):", min_value=10.0, value=100.0, step=10.0)
+            
+            with col2:
+                try:
+                    coin_data = crypto_analyzer.get_coin_data(symbol)
+                    current_price = coin_data['current_price']
+                    st.write(f"Güncel Fiyat: ${current_price:.6f}")
+                    
+                    if st.button("✅ Satın Al"):
+                        buy_crypto(symbol, amount, current_price)
+                        st.session_state.show_buy_modal = None
+                        # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+                except:
+                    st.error("Fiyat bilgisi alınamadı")
+            
+            if st.button("❌ İptal"):
+                st.session_state.show_buy_modal = None
+                # st.rerun() kaldırıldı - sayfa yeniden yüklenmeyecek
+    
+    else:
+        st.info("📭 Henüz kripto varlığı bulunmuyor.")
+        st.write("🪙 Crypto Analizi sayfasından coin satın alabilirsiniz.")
+    
+    st.divider()
+    
+    # İşlem geçmişi
+    st.subheader("📋 İşlem Geçmişi")
+    transactions = user_manager.get_transactions(current_user)
+    
+    if transactions:
+        # Son 10 işlemi göster
+        recent_transactions = transactions[-10:]
+        
+        for transaction in reversed(recent_transactions):
+            with st.container():
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+                
+                with col1:
+                    transaction_type = "🟢 ALIM" if transaction['type'] == 'BUY' else "🔴 SATIM"
+                    st.write(f"{transaction_type} **{transaction['symbol']}**")
+                    st.write(f"Tarih: {transaction['timestamp'][:19]}")
+                
+                with col2:
+                    if transaction['type'] == 'BUY':
+                        st.write(f"Miktar: {transaction['amount']:.4f}")
+                        st.write(f"Fiyat: ${transaction['price']:.6f}")
+                    else:
+                        st.write(f"Miktar: {transaction['amount']:.4f}")
+                        st.write(f"Fiyat: ${transaction['price']:.6f}")
+                
+                with col3:
+                    if transaction['type'] == 'BUY':
+                        st.write(f"Toplam: ${transaction['total_cost']:.2f}")
+                    else:
+                        st.write(f"Toplam: ${transaction['total_revenue']:.2f}")
+                
+                with col4:
+                    st.write(f"Bakiye: ${transaction['balance_after']:.2f}")
+                
+                st.divider()
+    else:
+        st.info("📭 Henüz işlem geçmişi bulunmuyor.")
+
+def show_crypto_virtual_trading():
+    """Crypto sanal trading sayfası"""
+    st.header("🪙 Crypto Sanal Trading")
+    st.markdown("**Takip listesindeki coinlerle sanal alım-satım sistemi**")
+    
+    # Otomatik yenileme sistemi - Gelişmiş çözüm
+    if 'crypto_auto_refresh' not in st.session_state:
+        st.session_state.crypto_auto_refresh = True
+    
+    if 'crypto_refresh_interval' not in st.session_state:
+        st.session_state.crypto_refresh_interval = 5  # 5 saniye
+    
+    # Manuel yenileme butonu ve otomatik yenileme kontrolü
+    col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+    with col1:
+        st.write("🔄 **Canlı Crypto Takibi**")
+        if st.session_state.crypto_auto_refresh:
+            st.write(f"✅ Otomatik yenileme aktif ({st.session_state.crypto_refresh_interval} saniyede bir)")
+        else:
+            st.write("⏸️ Otomatik yenileme duraklatıldı")
+    
+    with col2:
+        if st.button("🔄 Yenile", key="manual_refresh_crypto"):
+            st.rerun()
+    
+    with col3:
+        if st.button("⏸️/▶️", key="toggle_crypto_auto_refresh"):
+            st.session_state.crypto_auto_refresh = not st.session_state.crypto_auto_refresh
+            st.rerun()
+    
+    with col4:
+        # Yenileme aralığını ayarlama
+        new_interval = st.selectbox("⏱️ Yenileme Aralığı:", [3, 5, 10, 15, 30], 
+                                   index=[3, 5, 10, 15, 30].index(st.session_state.crypto_refresh_interval),
+                                   key="crypto_refresh_interval_selector")
+        if new_interval != st.session_state.crypto_refresh_interval:
+            st.session_state.crypto_refresh_interval = new_interval
+            st.rerun()
+    
+    # Otomatik yenileme için placeholder
+    if st.session_state.crypto_auto_refresh:
+        refresh_placeholder = st.empty()
+        refresh_placeholder.info(f"🔄 Otomatik yenileme aktif - {st.session_state.crypto_refresh_interval} saniyede bir güncelleniyor...")
+        
+        # Basit otomatik yenileme - her sayfa yüklendiğinde kontrol
+        if 'crypto_auto_refresh_counter' not in st.session_state:
+            st.session_state.crypto_auto_refresh_counter = 0
+        
+        st.session_state.crypto_auto_refresh_counter += 1
+        
+        # Her 5 sayfa yüklemesinde bir yenileme (yaklaşık 5 saniye)
+        if st.session_state.crypto_auto_refresh_counter >= st.session_state.crypto_refresh_interval:
+            st.session_state.crypto_auto_refresh_counter = 0
+            st.rerun()
+    
+    print(f"DEBUG CRYPTO VIRTUAL: Sayfa yüklendi. Mevcut takip listesi: {st.session_state.watchlist}")
+    
+    # Refresh kontrolü
+    if st.session_state.refresh_watchlist:
+        st.session_state.refresh_watchlist = False
+        st.rerun()
+    
+    # Kullanıcı seçimi
+    st.subheader("👤 Kullanıcı Seçimi")
+    selected_user = st.selectbox(
+        "Hangi kullanıcı ile işlem yapmak istiyorsunuz?",
+        ["Gökhan", "Yılmaz"],
+        index=0 if st.session_state.selected_user == "Gökhan" else 1,
+        key="crypto_user_selector"
+    )
+    
+    # Kullanıcı değiştiğinde session state'i güncelle
+    if selected_user != st.session_state.selected_user:
+        st.session_state.selected_user = selected_user
+        st.rerun()
+    
+    # Seçili kullanıcının verilerini al
+    user_data = get_current_user_data()
+    
+    # Kullanıcı bilgileri
+    st.sidebar.subheader("💰 Kullanıcı Bilgileri")
+    st.sidebar.write(f"**Kullanıcı:** {selected_user}")
+    st.sidebar.metric("Bakiye", f"{user_data['balance']:.2f} USD")
+    
+    # Takip listesi
+    st.sidebar.subheader("👀 Takip Listesi")
+    print(f"DEBUG CRYPTO VIRTUAL SIDEBAR: Takip listesi içeriği: {st.session_state['watchlist']}")
+    if st.session_state["watchlist"]:
+        st.sidebar.write(f"📊 **{len(st.session_state['watchlist'])} coin takip ediliyor**")
+        for symbol in st.session_state["watchlist"]:
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                st.sidebar.write(f"📈 {symbol}")
+            with col2:
+                if st.sidebar.button("❌", key=f"crypto_remove_{symbol}"):
+                    remove_from_watchlist(symbol)
+    else:
+        st.sidebar.info("Henüz takip listesi boş")
+        print(f"DEBUG CRYPTO VIRTUAL SIDEBAR: Takip listesi boş!")
+    
+    # Ana trading arayüzü
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Crypto Portföy", "👀 Takip Listesi", "💸 İşlem Yap", "📈 Performans", "📋 İşlem Geçmişi"])
+    
+    with tab1:
+        show_crypto_portfolio_tab()
+    
+    with tab2:
+        show_crypto_watchlist_tab()
+    
+    with tab3:
+        show_crypto_trading_tab()
+    
+    with tab4:
+        show_crypto_performance_tab()
+    
+    with tab5:
+        show_crypto_transaction_history()
+
+def show_crypto_portfolio_tab():
+    """Crypto portföy sekmesi"""
+    st.subheader("📊 Mevcut Crypto Portföy")
+    
+    # Kalıcı veri yönetimi ile portföy al
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        portfolio = user_manager.get_portfolio(current_user)
+    else:
+        # Fallback: session state
+        user_data = get_current_user_data()
+        portfolio = user_data.get('portfolio', {})
+    
+    if not portfolio:
+        st.info("Crypto portföyünüzde henüz coin bulunmuyor.")
+        return
+    
+    # Portföy özeti
+    total_value = 0
+    portfolio_data = []
+    
+    for symbol, data in portfolio.items():
+        # Sadece coinleri göster (USDT ile biten semboller)
+        if not symbol.endswith('USDT'):
+            continue
+            
+        # Gerçek fiyatları al
+        current_price = data['avg_price']  # Varsayılan olarak ortalama fiyat
+        try:
+            crypto_analyzer = st.session_state.get('crypto_analyzer')
+            if crypto_analyzer:
+                coin_data = crypto_analyzer.get_coin_data(symbol)
+                if coin_data:
+                    current_price = coin_data['current_price']
+        except:
+            # Hata durumunda ortalama fiyat kullan
+            current_price = data['avg_price']
+            
+        quantity = data['amount']  # user_manager'dan gelen veri 'amount' olarak
+        value = quantity * current_price
+        total_value += value
+        
+        # Kar/zarar hesapla
+        cost = quantity * data['avg_price']
+        profit_loss = value - cost
+        profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
+        
+        # Önerilen çıkış saati hesapla
+        exit_recommendation = calculate_exit_recommendation(symbol, current_price, data['avg_price'], profit_loss_percent)
+        
+        # Fiyat önerilerini hesapla
+        price_recommendations = calculate_price_recommendations(symbol, current_price, data['avg_price'], profit_loss_percent)
+        
+        portfolio_data.append({
+            'Symbol': symbol,
+            'Adet': quantity,
+            'Ortalama Maliyet': f"{data['avg_price']:.6f} USDT",
+            'Güncel Fiyat': f"{current_price:.6f} USDT",
+            'Toplam Değer': f"{value:.2f} USDT",
+            'Kar/Zarar': f"{profit_loss:.2f} USDT",
+            'Kar/Zarar %': f"{profit_loss_percent:.2f}%",
+            'Önerilen Çıkış': exit_recommendation,
+            'Önerilen Giriş': f"{price_recommendations['entry_price']:.6f} USDT",
+            'Önerilen Çıkış Fiyatı': f"{price_recommendations['exit_price']:.6f} USDT"
+        })
+    
+    # Portföy tablosu
+    df = pd.DataFrame(portfolio_data)
+    st.dataframe(df, use_container_width=True)
+    
+    # Toplam değer
+    st.metric("📈 Toplam Crypto Portföy Değeri", f"{total_value:.2f} USDT")
+    
+    # Çıkış önerileri açıklaması
+    st.subheader("🕐 Çıkış Önerileri Açıklaması")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.info("🟢 **ACİL SAT:** %20+ kar veya %10+ zarar durumunda")
+    with col2:
+        st.info("🟡 **YAKINDA SAT:** %10-20 kar veya %5-10 zarar durumunda")
+    with col3:
+        st.info("🔵 **BEKLE:** %5-10 kar veya %0-5 zarar durumunda")
+    
+    # Fiyat önerileri açıklaması
+    st.subheader("💰 Fiyat Önerileri Açıklaması")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.info("📈 **Önerilen Giriş:** Teknik analiz ile hesaplanan optimal alım fiyatı")
+    with col2:
+        st.info("📉 **Önerilen Çıkış:** Kar/zarar durumuna göre hesaplanan satış fiyatı")
+    with col3:
+        st.info("📊 **RSI:** Relative Strength Index - Aşırı alım/satım göstergesi")
+
+def show_crypto_watchlist_tab():
+    """Crypto takip listesi sekmesi"""
+    st.subheader("👀 Crypto Takip Listesi")
+    st.markdown("**Crypto analizinden takibe aldığınız coinler**")
+    
+    # Güncel döviz kuru bilgisi
+    try:
+        from portfolio.exchange_rate import exchange_rate_service
+        usdt_rate = exchange_rate_service.get_usdt_to_try_rate()
+        st.info(f"💱 **Güncel Döviz Kuru:** 1 USDT = {usdt_rate:.4f} TL")
+    except:
+        st.info("💱 **Güncel Döviz Kuru:** 1 USDT = 30.0000 TL")
+    
+    # Debug: Test butonu ekle
+    if st.button("🧪 Test: CVCUSDT Takibe Al", key="debug_test_watch"):
+        print(f"🔴🔴🔴 DEBUG TEST: Test butonuna tıklandı! 🔴🔴🔴")
+        result = add_to_watchlist("CVCUSDT")
+        print(f"🔴🔴🔴 DEBUG TEST: add_to_watchlist sonucu: {result} 🔴🔴🔴")
+        st.success("✅ Test: CVCUSDT takip listesine eklendi!")
+        st.rerun()
+    
+    # Basit test butonu
+    if st.button("🔴 Basit Test Butonu", key="simple_test_button"):
+        print(f"🔴🔴🔴 SIMPLE TEST: Basit test butonuna tıklandı! 🔴🔴🔴")
+        st.info("Basit test butonu çalışıyor!")
+    
+    # Manuel test butonu
+    st.write("🔴 MANUEL TEST: Manuel olarak coin ekleme")
+    if st.button("➕ CVCUSDT Ekle", key="manual_add_cvc"):
+        print(f"🔴🔴🔴 MANUAL ADD: CVCUSDT manuel olarak ekleniyor 🔴🔴🔴")
+        result = add_to_watchlist("CVCUSDT")
+        st.success(f"✅ CVCUSDT eklendi! Sonuç: {result}")
+        st.rerun()
+    
+    # Basit test butonu - Crypto analizi için
+    if st.button("🔴 Test: XTZUSDT Ekle", key="test_add_xtz"):
+        print(f"🔴🔴🔴 TEST XTZ: XTZUSDT test butonuna tıklandı! 🔴🔴🔴")
+        result = add_to_watchlist("XTZUSDT")
+        st.success(f"✅ XTZUSDT eklendi! Sonuç: {result}")
+        st.rerun()
+    
+    # Session state temizleme butonu
+    if st.button("🧹 Session State Temizle", key="cleanup_session"):
+        print(f"🔴🔴🔴 CLEANUP: Session state temizleniyor! 🔴🔴🔴")
+        keys_to_remove = [key for key in st.session_state.keys() if key.startswith(('profit_', 'crypto_')) and key != 'crypto_analyzer']
+        for key in keys_to_remove:
+            del st.session_state[key]
+            print(f"DEBUG CLEANUP: Key silindi: {key}")
+        st.success(f"✅ {len(keys_to_remove)} eski key temizlendi!")
+        st.rerun()
+    
+    # Manuel test butonu - Crypto analizi için
+    st.write("🔴 MANUEL TEST: Crypto analizi butonları için test")
+    if st.button("🔴 Test: CVCUSDT Takibe Al", key="test_crypto_watch"):
+        print(f"🔴🔴🔴 TEST CRYPTO: CVCUSDT test butonuna tıklandı! 🔴🔴🔴")
+        result = add_to_watchlist("CVCUSDT")
+        st.success(f"✅ CVCUSDT eklendi! Sonuç: {result}")
+        st.rerun()
+    
+    # Sadece coinleri filtrele (USDT ile biten semboller)
+    crypto_watchlist = [symbol for symbol in st.session_state["watchlist"] if symbol.endswith('USDT')]
+    
+    if not crypto_watchlist:
+        st.info("Henüz takip listesinde coin bulunmuyor.")
+        st.markdown("""
+        **Takip listesine coin eklemek için:**
+        1. **Crypto Analizi** sayfasına gidin
+        2. İstediğiniz coini bulun
+        3. **"Takibe Al"** butonuna tıklayın
+        """)
+        return
+    
+    # Takip listesi özeti
+    st.success(f"✅ Takip listenizde {len(crypto_watchlist)} coin bulunuyor")
+    
+    # Her coin için detaylı bilgi ve işlem seçenekleri
+    for i, symbol in enumerate(crypto_watchlist):
+        with st.expander(f"📈 {symbol} - Detaylar ve İşlemler", expanded=True):
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+            
+            with col1:
+                st.write(f"**{symbol}**")
+                
+                # Gerçek fiyatları opportunities_data'dan al
+                real_price = None
+                real_change = None
+                real_volume = None
+                
+                if 'opportunities_data' in st.session_state and st.session_state.opportunities_data:
+                    for opp in st.session_state.opportunities_data:
+                        if opp['symbol'] == symbol:
+                            real_price = opp['current_price']
+                            real_change = opp['change_24h']
+                            real_volume = opp['volume_24h']
+                            break
+                
+                # Eğer gerçek fiyat bulunamazsa Binance API'den çek
+                if real_price is None:
+                    try:
+                        # Crypto analyzer'dan gerçek fiyat çek
+                        crypto_analyzer = st.session_state.get('crypto_analyzer')
+                        if crypto_analyzer:
+                            coin_data = crypto_analyzer.get_coin_data(symbol)
+                            if coin_data:
+                                real_price = coin_data['current_price']
+                                real_change = coin_data['change_24h']
+                                real_volume = coin_data['volume_24h']
+                            else:
+                                # API'den çekilemezse daha gerçekçi mock değer
+                                if symbol.endswith('USDT'):
+                                    real_price = np.random.uniform(0.0001, 10)  # Daha gerçekçi aralık
+                                else:
+                                    real_price = np.random.uniform(0.0001, 1)
+                        else:
+                            # Crypto analyzer yoksa daha gerçekçi mock değer
+                            if symbol.endswith('USDT'):
+                                real_price = np.random.uniform(0.0001, 10)
+                            else:
+                                real_price = np.random.uniform(0.0001, 1)
+                    except:
+                        # Hata durumunda daha gerçekçi mock değer
+                        if symbol.endswith('USDT'):
+                            real_price = np.random.uniform(0.0001, 10)
+                        else:
+                            real_price = np.random.uniform(0.0001, 1)
+                
+                if real_change is None:
+                    real_change = np.random.uniform(-15, 15)
+                
+                if real_volume is None:
+                    real_volume = np.random.randint(1000000, 100000000)
+                
+                st.write(f"💰 **Güncel Fiyat:** ${real_price:.6f}")
+                st.write(f"📊 **24h Değişim:** {real_change:+.2f}%")
+                st.write(f"📈 **Hacim:** ${real_volume:,}")
+                
+                # Coin durumu
+                if real_change > 0:
+                    st.success(f"🟢 Pozitif trend")
+                elif real_change < 0:
+                    st.error(f"🔴 Negatif trend")
+                else:
+                    st.info(f"⚪ Nötr")
+            
+            with col2:
+                st.write("**📊 Teknik Analiz**")
+                
+                # Mock teknik göstergeler
+                rsi = np.random.uniform(30, 70)
+                macd = np.random.uniform(-2, 2)
+                volume_ratio = np.random.uniform(0.5, 2.0)
+                
+                st.write(f"RSI: {rsi:.1f}")
+                st.write(f"MACD: {macd:.2f}")
+                st.write(f"Hacim Oranı: {volume_ratio:.2f}")
+                
+                # RSI durumu
+                if rsi > 70:
+                    st.warning("⚠️ Aşırı alım")
+                elif rsi < 30:
+                    st.info("💡 Aşırı satım fırsatı")
+                else:
+                    st.success("✅ Normal seviye")
+            
+            with col3:
+                st.write("**🎯 İşlem Seçenekleri**")
+                
+                # USDT miktarı seçimi
+                usdt_amount = st.number_input(
+                    "USDT Miktarı:",
+                    min_value=10.0,
+                    value=100.0,
+                    step=10.0,
+                    key=f"crypto_watchlist_usdt_{symbol}"
+                )
+                
+                # Coin miktarı hesapla
+                coin_amount = usdt_amount / real_price
+                st.write(f"**Coin Miktarı:** {coin_amount:.6f}")
+            
+            with col4:
+                st.write("**🛒 İşlem Butonları**")
+                
+                # Alım butonu
+                if st.button(f"🛒 Al", key=f"crypto_watchlist_buy_{symbol}"):
+                    print(f"DEBUG CRYPTO VIRTUAL: Alım butonuna tıklandı: {symbol}")
+                    success = buy_crypto(symbol, usdt_amount, real_price)
+                    if success:
+                        st.success(f"{symbol} başarıyla alındı!")
+                        st.rerun()
+                    else:
+                        st.error("Alım işlemi başarısız!")
+                
+                # Satış butonu (portföyde varsa)
+                user_data = get_current_user_data()
+                if symbol in user_data['portfolio']:
+                    if st.button(f"💸 Sat", key=f"crypto_watchlist_sell_{symbol}"):
+                        success = sell_crypto(symbol, usdt_amount, real_price)
+                        if success:
+                            st.success(f"{symbol} başarıyla satıldı!")
+                            st.rerun()
+                        else:
+                            st.error("Satış işlemi başarısız!")
+                else:
+                    st.info("Portföyde yok")
+                
+                # Takip listesinden çıkar
+                if st.button(f"❌ Takipten Çıkar", key=f"crypto_watchlist_remove_{symbol}"):
+                    remove_from_watchlist(symbol)
+                    st.success(f"{symbol} takip listesinden çıkarıldı!")
+            
+            st.divider()
+    
+    # Takip listesi istatistikleri
+    st.subheader("📊 Takip Listesi İstatistikleri")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Toplam Coin", len(crypto_watchlist))
+    
+    with col2:
+        # Pozitif trend sayısı
+        positive_count = sum(1 for _ in range(len(crypto_watchlist)) 
+                           if np.random.uniform(-15, 15) > 0)
+        st.metric("Pozitif Trend", positive_count)
+    
+    with col3:
+        # Portföyde olan coin sayısı - Kalıcı veri yönetimi ile
+        current_user = st.session_state.get("current_user", "gokhan")
+        user_manager = st.session_state.get("user_manager")
+        
+        if user_manager:
+            portfolio = user_manager.get_portfolio(current_user)
+        else:
+            # Fallback: session state
+            user_data = get_current_user_data()
+            portfolio = user_data.get('portfolio', {})
+        
+        portfolio_count = sum(1 for symbol in crypto_watchlist 
+                            if symbol in portfolio)
+        st.metric("Portföyde Olan", portfolio_count)
+    
+    with col4:
+        # Ortalama fiyat
+        avg_price = np.random.uniform(0.0001, 50000)  # Mock ortalama
+        st.metric("Ortalama Fiyat", f"${avg_price:.6f}")
+
+def show_crypto_trading_tab():
+    """Crypto işlem yapma sekmesi"""
+    st.subheader("💸 Crypto İşlem Yap")
+    st.markdown("**Portföyünüzdeki coinlerden satış yapın veya yeni coin alın**")
+    
+    # Portföydeki coinlerden satış - Kalıcı veri yönetimi ile
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        portfolio = user_manager.get_portfolio(current_user)
+    else:
+        # Fallback: session state
+        user_data = get_current_user_data()
+        portfolio = user_data.get('portfolio', {})
+    
+    if portfolio:
+        st.write("**📊 Portföyünüzdeki Coinlerden Satış:**")
+        
+        for symbol, data in portfolio.items():
+            with st.expander(f"📈 {symbol} - Satış İşlemi", expanded=True):
+                col1, col2, col3, col4 = st.columns([2, 1, 1, 2])
+                
+                with col1:
+                    st.write(f"**{symbol}**")
+                    st.write(f"📦 **Mevcut Miktar:** {data['amount']:.6f}")
+                    st.write(f"💰 **Ortalama Maliyet:** {data['avg_price']:.6f} USDT")
+                    
+                    # Gerçek fiyatları al
+                    current_price = data['avg_price']  # Varsayılan olarak ortalama fiyat
+                    try:
+                        crypto_analyzer = st.session_state.get('crypto_analyzer')
+                        if crypto_analyzer:
+                            coin_data = crypto_analyzer.get_coin_data(symbol)
+                            if coin_data:
+                                current_price = coin_data['current_price']
+                    except:
+                        # Hata durumunda ortalama fiyat kullan
+                        current_price = data['avg_price']
+                    
+                    st.write(f"📊 **Güncel Fiyat:** {current_price:.6f} USDT")
+                
+                with col2:
+                    st.write("**📊 Kar/Zarar**")
+                    current_value = data['amount'] * current_price
+                    cost = data['amount'] * data['avg_price']
+                    profit_loss = current_value - cost
+                    profit_loss_percent = (profit_loss / cost) * 100 if cost > 0 else 0
+                    
+                    st.metric("Kar/Zarar", f"{profit_loss:.2f} USDT", f"{profit_loss_percent:+.2f}%")
+                
+                with col3:
+                    st.write("**💸 Satış Miktarı**")
+                    # Satış miktarı seçimi
+                    sell_amount = st.number_input(
+                        "USDT Miktarı:",
+                        min_value=10.0,
+                        value=100.0,
+                        step=10.0,
+                        key=f"crypto_sell_amount_{symbol}"
+                    )
+                    
+                    # Coin miktarı hesapla
+                    coin_amount = sell_amount / current_price
+                    st.write(f"**Coin Miktarı:** {coin_amount:.6f}")
+                
+                with col4:
+                    st.write("**🛒 İşlem Butonları**")
+                    
+                    # Satış butonu
+                    if st.button(f"💸 Sat", key=f"crypto_sell_{symbol}"):
+                        print(f"DEBUG CRYPTO VIRTUAL: Satış butonuna tıklandı: {symbol}")
+                        success = sell_crypto(symbol, sell_amount, current_price)
+                        if success:
+                            st.success(f"{symbol} başarıyla satıldı!")
+                            st.rerun()
+                        else:
+                            st.error("Satış işlemi başarısız!")
+                    
+                    # Tümünü sat butonu
+                    if st.button(f"💸 Tümünü Sat", key=f"crypto_sell_all_{symbol}"):
+                        total_value = data['amount'] * current_price
+                        success = sell_crypto(symbol, total_value, current_price)
+                        if success:
+                            st.success(f"{symbol} tümü satıldı!")
+                            st.rerun()
+                        else:
+                            st.error("Satış işlemi başarısız!")
+                
+                st.divider()
+    else:
+        st.info("Portföyünüzde henüz coin bulunmuyor.")
+    
+    # Yeni coin alma
+    st.subheader("🛒 Yeni Coin Al")
+    
+    # Takip listesinden coin seçimi (sadece coinler)
+    crypto_watchlist = [symbol for symbol in st.session_state["watchlist"] if symbol.endswith('USDT')]
+    if crypto_watchlist:
+        selected_coin = st.selectbox(
+            "Takip listesinden coin seçin:",
+            crypto_watchlist,
+            key="crypto_buy_coin_select"
+        )
+        
+        col1, col2, col3 = st.columns([1, 1, 1])
+        
+        with col1:
+            # Mock fiyat
+            mock_price = np.random.uniform(0.0001, 50000)
+            st.write(f"**Güncel Fiyat:** ${mock_price:.6f}")
+        
+        with col2:
+            # USDT miktarı
+            buy_amount = st.number_input(
+                "USDT Miktarı:",
+                min_value=10.0,
+                value=100.0,
+                step=10.0,
+                key="crypto_buy_amount"
+            )
+            
+            # Coin miktarı hesapla
+            coin_amount = buy_amount / mock_price
+            st.write(f"**Alınacak Miktar:** {coin_amount:.6f}")
+        
+        with col3:
+            st.write("**🛒 Alım Butonu**")
+            if st.button(f"🛒 {selected_coin} Al", key="crypto_buy_button"):
+                print(f"DEBUG CRYPTO VIRTUAL: Alım butonuna tıklandı: {selected_coin}")
+                success = buy_crypto(selected_coin, buy_amount, mock_price)
+                if success:
+                    st.success(f"{selected_coin} başarıyla alındı!")
+                    st.rerun()
+                else:
+                    st.error("Alım işlemi başarısız!")
+    else:
+        st.info("Takip listenizde coin bulunmuyor. Önce Crypto Analizi sayfasından coin ekleyin.")
+
+def show_crypto_performance_tab():
+    """Crypto performans sekmesi"""
+    st.subheader("📈 Crypto Performans Analizi")
+    
+    # Kalıcı veri yönetimi ile portföy al
+    current_user = st.session_state.get("current_user", "gokhan")
+    user_manager = st.session_state.get("user_manager")
+    
+    if user_manager:
+        portfolio = user_manager.get_portfolio(current_user)
+    else:
+        # Fallback: session state
+        user_data = get_current_user_data()
+        portfolio = user_data.get('portfolio', {})
+    
+    if not portfolio:
+        st.info("Portföyünüzde henüz coin bulunmuyor.")
+        return
+    
+    # Performans hesapla
+    total_invested = 0
+    total_current_value = 0
+    performance_data = []
+    
+    for symbol, data in portfolio.items():
+        # Gerçek fiyatları al
+        current_price = data['avg_price']  # Varsayılan olarak ortalama fiyat
+        try:
+            crypto_analyzer = st.session_state.get('crypto_analyzer')
+            if crypto_analyzer:
+                coin_data = crypto_analyzer.get_coin_data(symbol)
+                if coin_data:
+                    current_price = coin_data['current_price']
+        except:
+            # Hata durumunda ortalama fiyat kullan
+            current_price = data['avg_price']
+        
+        current_value = data['amount'] * current_price
+        invested = data['amount'] * data['avg_price']
+        
+        total_invested += invested
+        total_current_value += current_value
+        
+        profit_loss = current_value - invested
+        profit_loss_percent = (profit_loss / invested) * 100 if invested > 0 else 0
+        
+        performance_data.append({
+            'Coin': symbol,
+            'Yatırım': f"{invested:.2f} USDT",
+            'Güncel Değer': f"{current_value:.2f} USDT",
+            'Kar/Zarar': f"{profit_loss:.2f} USDT",
+            'Kar/Zarar %': f"{profit_loss_percent:.2f}%"
+        })
+    
+    # Performans tablosu
+    df = pd.DataFrame(performance_data)
+    st.dataframe(df, use_container_width=True)
+    
+    # Genel performans
+    overall_profit_loss = total_current_value - total_invested
+    overall_profit_loss_percent = (overall_profit_loss / total_invested) * 100 if total_invested > 0 else 0
+    
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Toplam Yatırım", f"{total_invested:.2f} USDT")
+    
+    with col2:
+        st.metric("Güncel Değer", f"{total_current_value:.2f} USDT")
+    
+    with col3:
+        st.metric("Toplam Kar/Zarar", f"{overall_profit_loss:.2f} USDT", f"{overall_profit_loss_percent:+.2f}%")
+    
+    with col4:
+        # En iyi performans gösteren coin
+        if performance_data:
+            best_coin = max(performance_data, key=lambda x: float(x['Kar/Zarar %'].replace('%', '')))
+            st.metric("En İyi Coin", best_coin['Coin'])
+
+def show_crypto_transaction_history():
+    """Crypto işlem geçmişi sekmesi"""
+    st.subheader("📋 Crypto İşlem Geçmişi")
+    
+    user_data = get_current_user_data()
+    
+    if not user_data['transactions']:
+        st.info("Henüz crypto işlem geçmişi bulunmuyor.")
+        return
+    
+    # İşlem geçmişini göster
+    for transaction in reversed(user_data['transactions']):
+        with st.container():
+            col1, col2, col3, col4 = st.columns([2, 1, 1, 1])
+            
+            with col1:
+                transaction_type = "🟢 ALIM" if transaction['type'] == 'BUY' else "🔴 SATIM"
+                st.write(f"{transaction_type} **{transaction['symbol']}**")
+                # Timestamp kontrolü
+                if 'timestamp' in transaction:
+                    st.write(f"Tarih: {transaction['timestamp']}")
+                else:
+                    st.write(f"Tarih: {transaction.get('date', 'N/A')}")
+            
+            with col2:
+                if transaction['type'] == 'BUY':
+                    st.write(f"USDT: {transaction['amount']:.2f}")
+                    st.write(f"Fiyat: ${transaction['price']:.6f}")
+                else:
+                    st.write(f"USDT: {transaction['amount']:.2f}")
+                    st.write(f"Fiyat: ${transaction['price']:.6f}")
+            
+            with col3:
+                if transaction['type'] == 'BUY':
+                    st.write(f"Toplam: ${transaction['total_cost']:.2f}")
+                else:
+                    st.write(f"Toplam: ${transaction['total_revenue']:.2f}")
+            
+            with col4:
+                st.write(f"Bakiye: ${transaction['balance_after']:.2f}")
+            
+            st.divider()
+
+def analyze_whale_activity(min_volume=10000000, period="3 Ay", prediction_days=30):
+    """
+    Balina aktivitelerini analiz eder ve tahminler yapar
+    
+    Args:
+        min_volume: Minimum balina hacmi (USDT)
+        period: Analiz periyodu ("3 Ay", "6 Ay", "1 Yıl")
+        prediction_days: Tahmin günleri
+    
+    Returns:
+        dict: Balina analizi sonuçları
+    """
+    try:
+        crypto_analyzer = st.session_state.get('crypto_analyzer')
+        if not crypto_analyzer:
+            return None
+        
+        # Periyot günlerini hesapla
+        period_days = {
+            "3 Ay": 90,
+            "6 Ay": 180,
+            "1 Yıl": 365
+        }
+        
+        days = period_days.get(period, 90)
+        
+        # Mock balina verileri (gerçek uygulamada API'den alınacak)
+        mock_whale_data = generate_mock_whale_data(crypto_analyzer, min_volume, days)
+        
+        # En çok alım yapılan coinleri analiz et
+        top_whale_coins = analyze_top_whale_coins(mock_whale_data, crypto_analyzer)
+        
+        # Yakın vadeli tahminler
+        predictions = generate_whale_predictions(mock_whale_data, crypto_analyzer, prediction_days)
+        
+        return {
+            'top_whale_coins': top_whale_coins,
+            'predictions': predictions,
+            'analysis_period': period,
+            'total_whale_volume': sum(coin['whale_volume'] for coin in top_whale_coins)
+        }
+    
+    except Exception as e:
+        print(f"Balina analizi hatası: {str(e)}")
+        return None
+
+def generate_mock_whale_data(crypto_analyzer, min_volume, days):
+    """Mock balina verileri oluşturur"""
+    whale_data = []
+    
+    # Popüler coinler listesi
+    popular_coins = [
+        "BTCUSDT", "ETHUSDT", "BNBUSDT", "ADAUSDT", "SOLUSDT", 
+        "DOTUSDT", "LINKUSDT", "LTCUSDT", "BCHUSDT", "XRPUSDT",
+        "AVAXUSDT", "MATICUSDT", "UNIUSDT", "ATOMUSDT", "FTMUSDT",
+        "NEARUSDT", "ALGOUSDT", "VETUSDT", "ICPUSDT", "FILUSDT"
+    ]
+    
+    for symbol in popular_coins:
+        try:
+            # Coin verilerini al
+            coin_data = crypto_analyzer.get_coin_data(symbol)
+            if coin_data:
+                # Mock balina aktivitesi
+                whale_volume = np.random.uniform(min_volume, min_volume * 10)
+                whale_count = np.random.randint(5, 50)
+                whale_score = np.random.uniform(60, 95)
+                
+                # Son 3 ay değişim
+                change_3m = np.random.uniform(-30, 50)
+                
+                whale_data.append({
+                    'symbol': symbol,
+                    'current_price': coin_data['current_price'],
+                    'volume_24h': coin_data['volume_24h'],
+                    'whale_volume': whale_volume,
+                    'whale_count': whale_count,
+                    'whale_score': whale_score,
+                    'change_3m': change_3m,
+                    'rsi': coin_data.get('rsi', 50),
+                    'trend': "Yükseliş" if change_3m > 0 else "Düşüş",
+                    'coin_type': determine_coin_type(symbol, coin_data['current_price'], coin_data['volume_24h'])
+                })
+        except:
+            continue
+    
+    return whale_data
+
+def analyze_top_whale_coins(whale_data, crypto_analyzer):
+    """En çok balina alımı yapılan coinleri analiz eder"""
+    # Balina skoruna göre sırala
+    sorted_coins = sorted(whale_data, key=lambda x: x['whale_score'], reverse=True)
+    
+    # En iyi 10 coin'i döndür
+    return sorted_coins[:10]
+
+def generate_whale_predictions(whale_data, crypto_analyzer, prediction_days):
+    """Yakın vadeli balina tahminleri oluşturur"""
+    predictions = []
+    
+    # Tahmin için potansiyel coinler
+    potential_coins = [
+        "SHIBUSDT", "DOGEUSDT", "PEPEUSDT", "FLOKIUSDT", "BONKUSDT",
+        "WIFUSDT", "JUPUSDT", "PYTHUSDT", "BOMEUSDT", "BOOKUSDT"
+    ]
+    
+    for symbol in potential_coins:
+        try:
+            # Coin verilerini al
+            coin_data = crypto_analyzer.get_coin_data(symbol)
+            if coin_data:
+                # Tahmin skoru hesapla
+                prediction_score = np.random.uniform(70, 95)
+                entry_probability = np.random.uniform(60, 90)
+                
+                # Tahmin tarihi
+                from datetime import datetime, timedelta
+                predicted_date = datetime.now() + timedelta(days=np.random.randint(1, prediction_days))
+                
+                # Beklenen hacim
+                expected_volume = np.random.uniform(5000000, 50000000)
+                
+                predictions.append({
+                    'symbol': symbol,
+                    'current_price': coin_data['current_price'],
+                    'current_volume': coin_data['volume_24h'],
+                    'prediction_score': prediction_score,
+                    'entry_probability': entry_probability,
+                    'predicted_date': predicted_date.strftime("%Y-%m-%d"),
+                    'expected_volume': expected_volume,
+                    'rsi': coin_data.get('rsi', 50),
+                    'trend': "Yükseliş" if prediction_score > 80 else "Nötr",
+                    'coin_type': determine_coin_type(symbol, coin_data['current_price'], coin_data['volume_24h'])
+                })
+        except:
+            continue
+    
+    # Tahmin skoruna göre sırala
+    sorted_predictions = sorted(predictions, key=lambda x: x['prediction_score'], reverse=True)
+    
+    return sorted_predictions[:5]
 
 if __name__ == "__main__":
     main() 

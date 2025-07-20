@@ -1,0 +1,17 @@
+{
+  "name": "Crypto Portfolio Tracker",
+  "description": "Advanced cryptocurrency portfolio management and analysis tool",
+  "repository": "https://github.com/yourusername/crypto-portfolio-tracker",
+  "keywords": ["python", "streamlit", "cryptocurrency", "portfolio", "trading"],
+  "env": {
+    "STREAMLIT_SERVER_PORT": {
+      "description": "Port for Streamlit server",
+      "value": "8501"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ]
+} 
