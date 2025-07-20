@@ -1,0 +1,14 @@
+{
+  "gokhan": {
+    "name": "Gökhan",
+    "balance": 479500.0,
+    "created_at": "2025-07-19T14:02:33.077041",
+    "last_login": null
+  },
+  "ugur": {
+    "name": "Uğur",
+    "balance": 500000.0,
+    "created_at": "2025-07-19T14:02:33.077041",
+    "last_login": null
+  }
+}

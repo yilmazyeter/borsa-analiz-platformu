@@ -71,7 +71,295 @@ except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from crypto.crypto_analyzer import CryptoAnalyzer
+    try:
+        from crypto.crypto_analyzer import CryptoAnalyzer
+    except ImportError:
+        # CryptoAnalyzer sınıfını doğrudan buraya ekle
+        import requests
+        import pandas as pd
+        import numpy as np
+        from datetime import datetime, timedelta
+        import time
+        import logging
+        from typing import Dict, List, Optional, Tuple
+        import json
+        import os
+
+        class CryptoAnalyzer:
+            def __init__(self):
+                self.base_url = "https://api.binance.com/api/v3"
+                self.exchange_info_url = f"{self.base_url}/exchangeInfo"
+                self.klines_url = f"{self.base_url}/klines"
+                self.ticker_url = f"{self.base_url}/ticker/24hr"
+                
+                # Analiz parametreleri
+                self.min_volume_usdt = 1000000  # Minimum 1M USDT hacim
+                self.min_price_change = 2.0  # Minimum %2 değişim
+                self.opportunity_threshold = 5.0  # %5 düşüş fırsat eşiği
+                
+                # Cache için
+                self.cache = {}
+                self.cache_duration = 60  # 60 saniye cache
+                
+                # Logging
+                logging.basicConfig(level=logging.INFO)
+                self.logger = logging.getLogger(__name__)
+            
+            def get_all_usdt_pairs(self) -> List[str]:
+                """Binance'deki tüm USDT çiftlerini getirir"""
+                try:
+                    response = requests.get(self.exchange_info_url, timeout=10)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    usdt_pairs = []
+                    
+                    for symbol_info in data['symbols']:
+                        symbol = symbol_info['symbol']
+                        if symbol.endswith('USDT') and symbol_info['status'] == 'TRADING':
+                            usdt_pairs.append(symbol)
+                    
+                    self.logger.info(f"Toplam {len(usdt_pairs)} USDT çifti bulundu")
+                    return usdt_pairs
+                    
+                except Exception as e:
+                    self.logger.error(f"USDT çiftleri alınırken hata: {e}")
+                    return []
+            
+            def get_coin_data(self, symbol: str, interval: str = "1h", limit: int = 168) -> Optional[Dict]:
+                """Belirli bir coinin verilerini çeker (son 7 gün - 168 saat)"""
+                try:
+                    # Cache kontrolü
+                    cache_key = f"{symbol}_{interval}_{limit}"
+                    if cache_key in self.cache:
+                        cache_time, cache_data = self.cache[cache_key]
+                        if (datetime.now() - cache_time).seconds < self.cache_duration:
+                            return cache_data
+                    
+                    url = f"{self.klines_url}?symbol={symbol}&interval={interval}&limit={limit}"
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    if not data:
+                        return None
+                    
+                    # Veriyi DataFrame'e çevir
+                    df = pd.DataFrame(data, columns=[
+                        'open_time', 'open', 'high', 'low', 'close', 'volume',
+                        'close_time', 'quote_asset_volume', 'number_of_trades',
+                        'taker_buy_base_asset_volume', 'taker_buy_quote_asset_volume', 'ignore'
+                    ])
+                    
+                    # Veri tiplerini düzelt
+                    numeric_columns = ['open', 'high', 'low', 'close', 'volume', 'quote_asset_volume']
+                    for col in numeric_columns:
+                        df[col] = pd.to_numeric(df[col], errors='coerce')
+                    
+                    df['open_time'] = pd.to_datetime(df['open_time'], unit='ms')
+                    df['close_time'] = pd.to_datetime(df['close_time'], unit='ms')
+                    
+                    # Son fiyat bilgileri
+                    current_price = float(df['close'].iloc[-1])
+                    price_24h_ago = float(df['close'].iloc[-24]) if len(df) >= 24 else float(df['close'].iloc[0])
+                    price_7d_ago = float(df['close'].iloc[0])
+                    
+                    # Değişim hesaplamaları
+                    change_24h = ((current_price - price_24h_ago) / price_24h_ago) * 100
+                    change_7d = ((current_price - price_7d_ago) / price_7d_ago) * 100
+                    
+                    # Hacim bilgileri
+                    volume_24h = float(df['quote_asset_volume'].iloc[-24:].sum()) if len(df) >= 24 else float(df['quote_asset_volume'].sum())
+                    
+                    # Sonuç verisi
+                    result = {
+                        'symbol': symbol,
+                        'current_price': current_price,
+                        'price_24h_ago': price_24h_ago,
+                        'price_7d_ago': price_7d_ago,
+                        'change_24h': change_24h,
+                        'change_7d': change_7d,
+                        'volume_24h': volume_24h,
+                        'data': df,
+                        'last_updated': datetime.now().isoformat()
+                    }
+                    
+                    # Cache'e kaydet
+                    self.cache[cache_key] = (datetime.now(), result)
+                    
+                    return result
+                    
+                except Exception as e:
+                    self.logger.error(f"{symbol} verisi alınırken hata: {e}")
+                    return None
+            
+            def get_ticker_info(self, symbol: str) -> Optional[Dict]:
+                """Coin'in 24 saatlik ticker bilgilerini getirir"""
+                try:
+                    url = f"{self.ticker_url}?symbol={symbol}"
+                    response = requests.get(url, timeout=10)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    return {
+                        'symbol': data['symbol'],
+                        'price_change': float(data['priceChange']),
+                        'price_change_percent': float(data['priceChangePercent']),
+                        'weighted_avg_price': float(data['weightedAvgPrice']),
+                        'prev_close_price': float(data['prevClosePrice']),
+                        'last_price': float(data['lastPrice']),
+                        'last_qty': float(data['lastQty']),
+                        'bid_price': float(data['bidPrice']),
+                        'ask_price': float(data['askPrice']),
+                        'open_price': float(data['openPrice']),
+                        'high_price': float(data['highPrice']),
+                        'low_price': float(data['lowPrice']),
+                        'volume': float(data['volume']),
+                        'quote_volume': float(data['quoteVolume']),
+                        'open_time': datetime.fromtimestamp(data['openTime'] / 1000),
+                        'close_time': datetime.fromtimestamp(data['closeTime'] / 1000),
+                        'count': int(data['count'])
+                    }
+                    
+                except Exception as e:
+                    self.logger.error(f"{symbol} ticker bilgisi alınırken hata: {e}")
+                    return None
+            
+            def analyze_coin_opportunity(self, coin_data: Dict) -> Dict:
+                """Coin'in fırsat analizini yapar"""
+                if not coin_data:
+                    return {}
+                
+                symbol = coin_data['symbol']
+                current_price = coin_data['current_price']
+                change_24h = coin_data['change_24h']
+                change_7d = coin_data['change_7d']
+                volume_24h = coin_data['volume_24h']
+                
+                # Fırsat skoru hesaplama
+                opportunity_score = 0
+                opportunity_type = "Nötr"
+                recommendation = "Bekle"
+                
+                # 1. Hacim kontrolü
+                if volume_24h < self.min_volume_usdt:
+                    return {
+                        'symbol': symbol,
+                        'opportunity_score': 0,
+                        'opportunity_type': "Düşük Hacim",
+                        'recommendation': "Hacim yetersiz",
+                        'reason': f"24h hacim: ${volume_24h:,.0f} (min: ${self.min_volume_usdt:,.0f})"
+                    }
+                
+                # 2. Düşüş analizi (fırsat tespiti)
+                if change_7d < -self.opportunity_threshold:
+                    opportunity_score += abs(change_7d) * 2  # Düşüş ne kadar büyükse o kadar iyi fırsat
+                    opportunity_type = "Düşüş Fırsatı"
+                    recommendation = "Alım Fırsatı"
+                
+                # 3. Son 24 saatte toparlanma
+                if change_24h > 0 and change_7d < 0:
+                    opportunity_score += change_24h * 1.5  # Toparlanma başladı
+                    opportunity_type = "Toparlanma Fırsatı"
+                    recommendation = "Alım Fırsatı"
+                
+                # 4. Aşırı düşüş kontrolü
+                if change_7d < -20:
+                    opportunity_score += 20  # Aşırı düşüş bonusu
+                    opportunity_type = "Aşırı Düşüş Fırsatı"
+                    recommendation = "Güçlü Alım Fırsatı"
+                
+                # 5. Hacim artışı
+                if volume_24h > self.min_volume_usdt * 5:
+                    opportunity_score += 10  # Yüksek hacim bonusu
+                
+                # 6. Momentum kontrolü
+                if change_24h > 5:
+                    opportunity_score += change_24h * 0.5  # Momentum bonusu
+                    if opportunity_type == "Nötr":
+                        opportunity_type = "Momentum"
+                        recommendation = "İzle"
+                
+                return {
+                    'symbol': symbol,
+                    'current_price': current_price,
+                    'change_24h': change_24h,
+                    'change_7d': change_7d,
+                    'volume_24h': volume_24h,
+                    'opportunity_score': opportunity_score,
+                    'opportunity_type': opportunity_type,
+                    'recommendation': recommendation,
+                    'last_updated': datetime.now().isoformat()
+                }
+            
+            def find_opportunities(self, min_score: float = 10.0, max_results: int = 20) -> List[Dict]:
+                """Genel fırsat analizi"""
+                try:
+                    # Popüler USDT çiftleri
+                    popular_pairs = [
+                        'BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'SOLUSDT', 'DOTUSDT', 'LINKUSDT', 'LTCUSDT',
+                        'BCHUSDT', 'XLMUSDT', 'VETUSDT', 'TRXUSDT', 'FILUSDT', 'THETAUSDT', 'EOSUSDT', 'AAVEUSDT',
+                        'UNIUSDT', 'ATOMUSDT', 'NEOUSDT', 'XRPUSDT', 'DOGEUSDT', 'SHIBUSDT', 'MATICUSDT', 'AVAXUSDT',
+                        'ALGOUSDT', 'ICPUSDT', 'FTMUSDT', 'SANDUSDT', 'MANAUSDT', 'GALAUSDT', 'AXSUSDT', 'ROSEUSDT'
+                    ]
+                    
+                    opportunities = []
+                    
+                    for symbol in popular_pairs:
+                        try:
+                            coin_data = self.get_coin_data(symbol)
+                            if coin_data:
+                                analysis = self.analyze_coin_opportunity(coin_data)
+                                if analysis and analysis.get('opportunity_score', 0) >= min_score:
+                                    opportunities.append(analysis)
+                        except Exception as e:
+                            self.logger.error(f"{symbol} analiz edilirken hata: {e}")
+                            continue
+                    
+                    # Skora göre sırala
+                    opportunities.sort(key=lambda x: x.get('opportunity_score', 0), reverse=True)
+                    
+                    return opportunities[:max_results]
+                    
+                except Exception as e:
+                    self.logger.error(f"Fırsatlar aranırken hata: {e}")
+                    return []
+            
+            def get_coin_details(self, symbol: str) -> Dict:
+                """Coin'in detaylı bilgilerini getirir"""
+                try:
+                    coin_data = self.get_coin_data(symbol)
+                    ticker_info = self.get_ticker_info(symbol)
+                    
+                    if not coin_data:
+                        return {}
+                    
+                    details = {
+                        'symbol': symbol,
+                        'current_price': coin_data['current_price'],
+                        'change_24h': coin_data['change_24h'],
+                        'change_7d': coin_data['change_7d'],
+                        'volume_24h': coin_data['volume_24h'],
+                        'last_updated': coin_data['last_updated']
+                    }
+                    
+                    if ticker_info:
+                        details.update({
+                            'high_24h': ticker_info['high_price'],
+                            'low_24h': ticker_info['low_price'],
+                            'open_24h': ticker_info['open_price'],
+                            'bid_price': ticker_info['bid_price'],
+                            'ask_price': ticker_info['ask_price'],
+                            'trades_24h': ticker_info['count']
+                        })
+                    
+                    return details
+                    
+                except Exception as e:
+                    self.logger.error(f"{symbol} detayları alınırken hata: {e}")
+                    return {}
 
 # Sayfa konfigürasyonu
 st.set_page_config(
@@ -155,7 +443,347 @@ except ImportError:
     import sys
     import os
     sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from portfolio.user_manager import UserManager
+    try:
+        from portfolio.user_manager import UserManager
+    except ImportError:
+        # UserManager sınıfını doğrudan buraya ekle
+        import json
+        import os
+        from datetime import datetime, timedelta
+        from typing import Dict, List, Optional
+        import logging
+
+        class UserManager:
+            def __init__(self, data_dir: str = "data"):
+                self.data_dir = data_dir
+                self.users_file = os.path.join(data_dir, "users.json")
+                self.portfolios_file = os.path.join(data_dir, "portfolios.json")
+                self.watchlists_file = os.path.join(data_dir, "watchlists.json")
+                self.transactions_file = os.path.join(data_dir, "transactions.json")
+                
+                # Logging
+                self.logger = logging.getLogger(__name__)
+                
+                # Dosyaları oluştur
+                self._initialize_files()
+                
+                # Varsayılan kullanıcıları oluştur
+                self._create_default_users()
+            
+            def _initialize_files(self):
+                """Gerekli dosyaları oluşturur"""
+                os.makedirs(self.data_dir, exist_ok=True)
+                
+                # Kullanıcılar dosyası
+                if not os.path.exists(self.users_file):
+                    default_users = {
+                        "gokhan": {
+                            "name": "Gökhan",
+                            "balance": 500000.0,  # 500K USD
+                            "created_at": datetime.now().isoformat(),
+                            "last_login": None
+                        },
+                        "ugur": {
+                            "name": "Uğur", 
+                            "balance": 500000.0,  # 500K USD
+                            "created_at": datetime.now().isoformat(),
+                            "last_login": None
+                        }
+                    }
+                    self._save_json(self.users_file, default_users)
+                
+                # Portföyler dosyası
+                if not os.path.exists(self.portfolios_file):
+                    default_portfolios = {
+                        "gokhan": {},
+                        "ugur": {}
+                    }
+                    self._save_json(self.portfolios_file, default_portfolios)
+                
+                # Takip listeleri dosyası
+                if not os.path.exists(self.watchlists_file):
+                    default_watchlists = {
+                        "gokhan": [],
+                        "ugur": []
+                    }
+                    self._save_json(self.watchlists_file, default_watchlists)
+                
+                # İşlemler dosyası
+                if not os.path.exists(self.transactions_file):
+                    default_transactions = {
+                        "gokhan": [],
+                        "ugur": []
+                    }
+                    self._save_json(self.transactions_file, default_transactions)
+            
+            def _create_default_users(self):
+                """Varsayılan kullanıcıları oluşturur"""
+                users = self._load_json(self.users_file)
+                if not users:
+                    self._initialize_files()
+            
+            def _load_json(self, file_path: str) -> Dict:
+                """JSON dosyasını yükler"""
+                try:
+                    if os.path.exists(file_path):
+                        with open(file_path, 'r', encoding='utf-8') as f:
+                            return json.load(f)
+                    return {}
+                except Exception as e:
+                    self.logger.error(f"JSON yükleme hatası {file_path}: {e}")
+                    return {}
+            
+            def _save_json(self, file_path: str, data: Dict):
+                """JSON dosyasına kaydeder"""
+                try:
+                    with open(file_path, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, indent=2, ensure_ascii=False)
+                except Exception as e:
+                    self.logger.error(f"JSON kaydetme hatası {file_path}: {e}")
+            
+            def get_users(self) -> Dict:
+                """Tüm kullanıcıları döndürür"""
+                return self._load_json(self.users_file)
+            
+            def get_user(self, username: str) -> Optional[Dict]:
+                """Belirli bir kullanıcıyı döndürür"""
+                users = self.get_users()
+                return users.get(username)
+            
+            def get_user_balance(self, username: str) -> float:
+                """Kullanıcının bakiyesini döndürür"""
+                user = self.get_user(username)
+                return user.get('balance', 0.0) if user else 0.0
+            
+            def update_user_balance(self, username: str, new_balance: float):
+                """Kullanıcı bakiyesini günceller"""
+                users = self.get_users()
+                if username in users:
+                    users[username]['balance'] = new_balance
+                    self._save_json(self.users_file, users)
+                    self.logger.info(f"{username} bakiyesi güncellendi: {new_balance:.2f} USD")
+            
+            def reset_user_balance(self, username: str, balance: float = 500000.0):
+                """Kullanıcı bakiyesini sıfırlar (varsayılan: 500K USD)"""
+                users = self.get_users()
+                if username in users:
+                    users[username]['balance'] = balance
+                    self._save_json(self.users_file, users)
+                    self.logger.info(f"{username} bakiyesi sıfırlandı: {balance:.2f} USD")
+            
+            def get_portfolio(self, username: str) -> Dict:
+                """Kullanıcının portföyünü döndürür"""
+                portfolios = self._load_json(self.portfolios_file)
+                return portfolios.get(username, {})
+            
+            def update_portfolio(self, username: str, portfolio: Dict):
+                """Kullanıcı portföyünü günceller"""
+                portfolios = self._load_json(self.portfolios_file)
+                portfolios[username] = portfolio
+                self._save_json(self.portfolios_file, portfolios)
+            
+            def get_watchlist(self, username: str) -> List[str]:
+                """Kullanıcının takip listesini döndürür"""
+                watchlists = self._load_json(self.watchlists_file)
+                return watchlists.get(username, [])
+            
+            def add_to_watchlist(self, username: str, symbol: str):
+                """Takip listesine coin ekler"""
+                watchlists = self._load_json(self.watchlists_file)
+                if username not in watchlists:
+                    watchlists[username] = []
+                
+                if symbol not in watchlists[username]:
+                    watchlists[username].append(symbol)
+                    self._save_json(self.watchlists_file, watchlists)
+                    self.logger.info(f"{username} takip listesine {symbol} eklendi")
+            
+            def remove_from_watchlist(self, username: str, symbol: str):
+                """Takip listesinden coin çıkarır"""
+                watchlists = self._load_json(self.watchlists_file)
+                if username in watchlists and symbol in watchlists[username]:
+                    watchlists[username].remove(symbol)
+                    self._save_json(self.watchlists_file, watchlists)
+                    self.logger.info(f"{username} takip listesinden {symbol} çıkarıldı")
+            
+            def get_transactions(self, username: str) -> List[Dict]:
+                """Kullanıcının işlem geçmişini döndürür"""
+                transactions = self._load_json(self.transactions_file)
+                return transactions.get(username, [])
+            
+            def add_transaction(self, username: str, transaction: Dict):
+                """İşlem geçmişine yeni işlem ekler"""
+                transactions = self._load_json(self.transactions_file)
+                if username not in transactions:
+                    transactions[username] = []
+                
+                # İşlem tarihini ekle
+                transaction['timestamp'] = datetime.now().isoformat()
+                transaction['id'] = len(transactions[username]) + 1
+                
+                transactions[username].append(transaction)
+                self._save_json(self.transactions_file, transactions)
+                self.logger.info(f"{username} için yeni işlem eklendi: {transaction['type']} {transaction['symbol']}")
+            
+            def buy_crypto(self, username: str, symbol: str, amount_usdt: float, price: float) -> bool:
+                """Kripto para satın alma işlemi"""
+                try:
+                    user = self.get_user(username)
+                    if not user:
+                        return False
+                    
+                    current_balance = user['balance']
+                    total_cost_usd = amount_usdt
+                    
+                    if total_cost_usd > current_balance:
+                        self.logger.warning(f"{username} yetersiz bakiye: {current_balance:.2f} USD, gerekli: {total_cost_usd:.2f} USD")
+                        return False
+                    
+                    # Bakiyeyi güncelle
+                    new_balance = current_balance - total_cost_usd
+                    self.update_user_balance(username, new_balance)
+                    
+                    # Portföyü güncelle
+                    portfolio = self.get_portfolio(username)
+                    if symbol not in portfolio:
+                        portfolio[symbol] = {
+                            'amount_usdt': 0.0,
+                            'avg_price': 0.0,
+                            'total_invested': 0.0
+                        }
+                    
+                    # Ortalama fiyat hesapla
+                    current_amount = portfolio[symbol]['amount_usdt']
+                    current_avg_price = portfolio[symbol]['avg_price']
+                    current_invested = portfolio[symbol]['total_invested']
+                    
+                    new_amount = current_amount + amount_usdt
+                    new_invested = current_invested + total_cost_usd
+                    new_avg_price = new_invested / new_amount if new_amount > 0 else price
+                    
+                    portfolio[symbol].update({
+                        'amount_usdt': new_amount,
+                        'avg_price': new_avg_price,
+                        'total_invested': new_invested
+                    })
+                    
+                    self.update_portfolio(username, portfolio)
+                    
+                    # İşlem geçmişine ekle
+                    transaction = {
+                        'type': 'BUY',
+                        'symbol': symbol,
+                        'amount_usdt': amount_usdt,
+                        'price': price,
+                        'total_cost_usd': total_cost_usd,
+                        'balance_after': new_balance
+                    }
+                    self.add_transaction(username, transaction)
+                    
+                    return True
+                    
+                except Exception as e:
+                    self.logger.error(f"Kripto satın alma hatası: {e}")
+                    return False
+            
+            def sell_crypto(self, username: str, symbol: str, amount_usdt: float, price: float) -> bool:
+                """Kripto para satış işlemi"""
+                try:
+                    user = self.get_user(username)
+                    if not user:
+                        return False
+                    
+                    portfolio = self.get_portfolio(username)
+                    if symbol not in portfolio or portfolio[symbol]['amount_usdt'] < amount_usdt:
+                        self.logger.warning(f"{username} yetersiz {symbol} miktarı")
+                        return False
+                    
+                    # Satış tutarını hesapla
+                    total_sale_usd = amount_usdt
+                    
+                    # Bakiyeyi güncelle
+                    current_balance = user['balance']
+                    new_balance = current_balance + total_sale_usd
+                    self.update_user_balance(username, new_balance)
+                    
+                    # Portföyü güncelle
+                    current_amount = portfolio[symbol]['amount_usdt']
+                    new_amount = current_amount - amount_usdt
+                    
+                    if new_amount <= 0:
+                        # Tüm miktarı sattıysa portföyden çıkar
+                        del portfolio[symbol]
+                    else:
+                        # Kısmi satış
+                        portfolio[symbol]['amount_usdt'] = new_amount
+                    
+                    self.update_portfolio(username, portfolio)
+                    
+                    # İşlem geçmişine ekle
+                    transaction = {
+                        'type': 'SELL',
+                        'symbol': symbol,
+                        'amount_usdt': amount_usdt,
+                        'price': price,
+                        'total_sale_usd': total_sale_usd,
+                        'balance_after': new_balance
+                    }
+                    self.add_transaction(username, transaction)
+                    
+                    return True
+                    
+                except Exception as e:
+                    self.logger.error(f"Kripto satış hatası: {e}")
+                    return False
+            
+            def get_portfolio_value(self, username: str, current_prices: Dict[str, float]) -> Dict:
+                """Portföy değerini hesaplar"""
+                try:
+                    portfolio = self.get_portfolio(username)
+                    user = self.get_user(username)
+                    balance = user.get('balance', 0.0) if user else 0.0
+                    
+                    total_value = balance
+                    portfolio_items = []
+                    
+                    for symbol, data in portfolio.items():
+                        current_price = current_prices.get(symbol, 0.0)
+                        amount_usdt = data.get('amount_usdt', 0.0)
+                        avg_price = data.get('avg_price', 0.0)
+                        total_invested = data.get('total_invested', 0.0)
+                        
+                        current_value = amount_usdt
+                        profit_loss = current_value - total_invested
+                        profit_loss_percent = (profit_loss / total_invested * 100) if total_invested > 0 else 0
+                        
+                        portfolio_items.append({
+                            'symbol': symbol,
+                            'amount_usdt': amount_usdt,
+                            'avg_price': avg_price,
+                            'current_price': current_price,
+                            'current_value': current_value,
+                            'total_invested': total_invested,
+                            'profit_loss': profit_loss,
+                            'profit_loss_percent': profit_loss_percent
+                        })
+                        
+                        total_value += current_value
+                    
+                    return {
+                        'total_value': total_value,
+                        'balance': balance,
+                        'portfolio_value': total_value - balance,
+                        'items': portfolio_items
+                    }
+                    
+                except Exception as e:
+                    self.logger.error(f"Portföy değeri hesaplama hatası: {e}")
+                    return {
+                        'total_value': 0.0,
+                        'balance': 0.0,
+                        'portfolio_value': 0.0,
+                        'items': []
+                    }
 
 # Kullanıcı yöneticisini başlat
 user_manager = UserManager()
