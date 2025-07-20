@@ -31,31 +31,47 @@ TWELVE_DATA_API_KEY = "0972e9caa03b454fad5eadca558d6eb8"
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 # Mevcut modüller
-from data.data_manager import DataManager
-from scraper.stock_scraper import StockScraper
-from visuals.chart_generator import ChartGenerator
-from visuals.report_generator import ReportGenerator
-
-# Ana uygulama sınıfı
-from main import StockAnalysisApp
-
-# Yeni AI modülleri
-from ai.price_predictor import PricePredictor
-from ai.sentiment_analyzer import SentimentAnalyzer
-from ai.trend_detector import TrendDetector
-from ai.nlp_assistant import NLPAssistant
-
-# Haber modülü
-from news.news_scraper import NewsScraper
-
-# Alarm modülü
-from alerts.alert_manager import AlertManager
-
-# Portföy optimizer modülü
-from portfolio_optimizer.portfolio_analyzer import PortfolioAnalyzer
+try:
+    from data.data_manager import DataManager
+    from scraper.stock_scraper import StockScraper
+    from visuals.chart_generator import ChartGenerator
+    from visuals.report_generator import ReportGenerator
+    from main import StockAnalysisApp
+    from ai.price_predictor import PricePredictor
+    from ai.sentiment_analyzer import SentimentAnalyzer
+    from ai.trend_detector import TrendDetector
+    from ai.nlp_assistant import NLPAssistant
+    from news.news_scraper import NewsScraper
+    from alerts.alert_manager import AlertManager
+    from portfolio_optimizer.portfolio_analyzer import PortfolioAnalyzer
+except ImportError as e:
+    print(f"Import error: {e}")
+    # Streamlit Cloud için alternatif import
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from data.data_manager import DataManager
+    from scraper.stock_scraper import StockScraper
+    from visuals.chart_generator import ChartGenerator
+    from visuals.report_generator import ReportGenerator
+    from main import StockAnalysisApp
+    from ai.price_predictor import PricePredictor
+    from ai.sentiment_analyzer import SentimentAnalyzer
+    from ai.trend_detector import TrendDetector
+    from ai.nlp_assistant import NLPAssistant
+    from news.news_scraper import NewsScraper
+    from alerts.alert_manager import AlertManager
+    from portfolio_optimizer.portfolio_analyzer import PortfolioAnalyzer
 
 # Crypto analiz modülü
-from crypto.crypto_analyzer import CryptoAnalyzer
+try:
+    from crypto.crypto_analyzer import CryptoAnalyzer
+except ImportError:
+    # Streamlit Cloud için alternatif import
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from crypto.crypto_analyzer import CryptoAnalyzer
 
 # Sayfa konfigürasyonu
 st.set_page_config(
@@ -132,7 +148,14 @@ if 'crypto_analyzer' not in st.session_state:
     st.session_state.crypto_analyzer = CryptoAnalyzer()
 
 # Portfolio yönetimi
-from portfolio.user_manager import UserManager
+try:
+    from portfolio.user_manager import UserManager
+except ImportError:
+    # Streamlit Cloud için alternatif import
+    import sys
+    import os
+    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+    from portfolio.user_manager import UserManager
 
 # Kullanıcı yöneticisini başlat
 user_manager = UserManager()
